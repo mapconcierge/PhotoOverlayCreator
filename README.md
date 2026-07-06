@@ -18,8 +18,12 @@ https://mapconcierge.github.io/PhotoOverlayCreator/
   - `<Point>`：PhotoOverlay 自体の配置位置
   - `<ViewVolume>`：leftFov / rightFov / topFov / bottomFov / near
     （UI では Horizontal / Vertical FOV + 縦横比固定 + 詳細設定で個別編集）
+- **写真の 3D 表示**：Google Earth Pro と同様に、写真をカメラ前方の 3D 空間に
+  立てて表示（WebGL カスタムレイヤ。heading / tilt / roll / 非対称 FOV を反映）
+- **写真ビュー**：画像読込・KMZ 読込時に KML の Camera 視点へ自動移動し、
+  写真を画面中央に表示（「📷 写真ビュー」ボタンでいつでも再現）
 - 地図上での編集：Point / Camera マーカーのドラッグ、地図クリックでの Point 設定、
-  視錐台（heading / tilt / roll ラベル付き）と画像面プレビューのリアルタイム更新
+  視錐台（heading / tilt / roll ラベル付き）と写真表示のリアルタイム更新
 - KML / KMZ（doc.kml + images/）の生成・ダウンロード
 - 既存 KMZ の読み込み → PhotoOverlay の復元・再編集・再出力（複数対応、並び替え・複製・削除）
 - JPEG への GPS Exif（GPSLatitude / GPSLongitude / GPSAltitude ほか）書き込み
@@ -127,11 +131,18 @@ output.kmz
 - **Roll の地図反映**：MapLibre GL JS v5 の roll に対応していますが、ブラウザや
   バージョンにより反映されない場合、roll は KML 出力値として保持され、地図上では
   視錐台ラベル（`R:xx°`）による補助表示のみになります。
-- **画像面プレビュー**：MapLibre の image ソースは地表面にドレープされるため、
-  「カメラ前方に立つ画像面」は地上投影による近似表示です（tilt による傾きは
-  視錐台の長さとラベルで表現）。
+- **写真の 3D 表示**：写真は WebGL カスタムレイヤで「カメラ前方 dist（カメラ→
+  Point 間の距離、無効時は near×2）の位置に立つ平面」として描画します。
+  Google Earth の写真ビューと同様、写真は常に地形・建物より手前に表示されます
+  （地図のニアクリップ面より手前に置かれるため、深度比較を行いません）。
 - **tilt の同期範囲**：MapLibre の pitch は最大 85° のため、Camera の tilt が
-  それを超える場合、地図視点への反映は 85° で頭打ちになります（KML 値は保持）。
+  それを超える場合（例: 水平よりやや上向きの 90.85°）、写真ビューの視点は
+  85° で頭打ちになります（KML 値は保持され、写真平面の姿勢には正しく反映）。
+- **写真ビューとセンター標高**：写真ビュー時はカメラ高度を正確に再現するため
+  「センター点の地面吸着」を一時解除します（ユーザーが地図操作を始めると復帰）。
+- **Google Earth Pro の KMZ 互換**：`<Style><IconStyle>` 内のアイコンと写真本体の
+  `<Icon>` を区別して解析します。`<gx:altitudeMode>relativeToSeaFloor` は
+  relativeToGround として読み込みます（GE Pro の「地面より上」に相当）。
 - **HEIF / HEIC・TIFF の表示**:ブラウザのデコーダ対応に依存します（Safari は
   HEIC 表示可、Chrome / Firefox は不可のことが多い）。読み込めない場合は
   JPEG / PNG への変換を促すエラーを表示します。
