@@ -468,8 +468,8 @@ function rebuildCustomLayers() {
     },
   });
 
-  // 画像面プレビュー（overlay ごとの image ソース）を再追加
-  for (const ov of state.overlays) addPhotoPlane(ov);
+  // 3D 写真ビルボード（WebGL カスタムレイヤ）
+  mapW.addLayer(photoBillboardLayer);
   refreshMapVisuals();
 }
 
@@ -558,8 +558,9 @@ function refreshMapVisuals() {
   const src = mapW.getSource('frustum-src');
   if (src) src.setData(buildFrustumFC());
 
-  // --- 画像面 ---
-  for (const ov of state.overlays) updatePhotoPlane(ov);
+  // --- 3D 写真ビルボード（テクスチャ元画像を準備して再描画を要求） ---
+  for (const ov of state.overlays) ensureImageElement(ov);
+  mapW.raw.triggerRepaint();
 }
 
 /** 1 overlay 分の Camera / Point マーカーを作成・更新する */
@@ -679,80 +680,307 @@ function buildFrustumFC() {
   return { type: 'FeatureCollection', features };
 }
 
-/** overlay の画像面プレビュー（image ソース）を追加する */
-function addPhotoPlane(ov) {
-  if (!ov.imageUrl) return;
-  const srcId = `photo-plane-${ov.id}`;
-  const layerId = `photo-plane-layer-${ov.id}`;
+/* ---- 3D 写真ビルボード（WebGL カスタムレイヤ） ---------------------------
+ * Google Earth Pro と同様に、写真をカメラ前方の 3D 空間に「立てて」表示する。
+ * MapLibre の image ソースは地表にドレープされてしまうため、カスタムレイヤで
+ * heading / tilt / roll / 非対称 FOV を反映したテクスチャ付き平面を描画する。
+ * ------------------------------------------------------------------------- */
+
+/** overlayId -> { tex: WebGLTexture, url: string } */
+const billboardTextures = new Map();
+
+/** 3 次元ベクトルの外積 */
+function cross3(a, b) {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
+/** Camera の altitudeMode を考慮した絶対高度[m]を返す（地形は best effort） */
+function overlayCameraAbsAlt(ov) {
+  const { altitudeMode, altitude, longitude, latitude } = ov.camera;
+  if (altitudeMode === 'absolute') return altitude;
+  let ground = 0;
   try {
-    mapW.addSource(srcId, {
-      type: 'image',
-      url: ov.imageUrl,
-      coordinates: photoPlaneCoords(ov),
-    });
-    mapW.addLayer({
-      id: layerId,
-      type: 'raster',
-      source: srcId,
-      paint: { 'raster-opacity': ov.opacity, 'raster-fade-duration': 0 },
-    });
-  } catch (e) {
-    console.warn('画像面プレビューの追加に失敗:', e);
-  }
+    ground = mapW.raw.queryTerrainElevation([longitude, latitude]) || 0;
+  } catch { /* 地形未ロード時は 0 */ }
+  if (altitudeMode === 'clampToGround') return ground + 2;
+  return ground + altitude; // relativeToGround
 }
 
-/** overlay の画像面プレビューを現在のモデル値で更新する */
-function updatePhotoPlane(ov) {
-  const srcId = `photo-plane-${ov.id}`;
-  const layerId = `photo-plane-layer-${ov.id}`;
-  const show = ov.visible && ov.shape === 'rectangle' && !!ov.imageUrl;
-  const src = mapW.getSource(srcId);
-  if (!src) {
-    if (show) addPhotoPlane(ov);
-  } else {
-    try { src.setCoordinates(photoPlaneCoords(ov)); } catch { /* 座標異常時は無視 */ }
-  }
-  mapW.setLayerVisibility(layerId, show);
-  mapW.setPaint(layerId, 'raster-opacity', ov.opacity);
-}
-
-/** overlay の画像面プレビューを地図から削除する */
-function removePhotoPlane(ovId) {
-  mapW.removeLayer(`photo-plane-layer-${ovId}`);
-  mapW.removeSource(`photo-plane-${ovId}`);
+/** 画像面までの表示距離[m]: カメラ→Point の距離。無効なら near×2（最低 30m） */
+function billboardDistance(ov) {
+  const cam = ov.camera;
+  const dLngM = (ov.point.longitude - cam.longitude) *
+    Math.cos(deg2rad(cam.latitude)) * 111319.49;
+  const dLatM = (ov.point.latitude - cam.latitude) * 111319.49;
+  const d = Math.hypot(dLngM, dLatM);
+  return d > Math.max(ov.viewVolume.near, 1) ? d : Math.max(ov.viewVolume.near * 2, 30);
 }
 
 /**
- * 画像面（カメラ前方の画像プレビュー）の四隅座標を求める。
- * MapLibre の image ソースは地表面へドレープされるため、ここでは
- * 「カメラ前方 dist の位置に、水平 FOV に応じた幅で置いた平面」の
- * 地上投影として近似する（README の既知の制約に記載）。
- * @returns {[[number,number],[number,number],[number,number],[number,number]]}
- *   [topLeft, topRight, bottomRight, bottomLeft]
+ * 写真平面の 4 頂点（Mercator 座標 + UV）を TRIANGLE_STRIP 順で生成する。
+ * KML Camera 定義: heading=北から時計回り, tilt 0=直下・90=水平, roll=視線軸回転。
  */
-function photoPlaneCoords(ov) {
-  const { longitude: lng, latitude: lat, heading, altitude } = ov.camera;
+function billboardVertices(ov) {
+  const cam = ov.camera;
   const vv = ov.viewVolume;
-  const hFov = Math.max(vv.rightFov - vv.leftFov, 1);
+  const dist = billboardDistance(ov);
 
-  const alt = Math.max(altitude, 5);
-  const dist = clamp(Math.max(vv.near * 3, alt * 1.2), 20, 3000); // 平面までの距離
-  const halfW = dist * Math.tan(deg2rad(hFov / 2));
-  const aspect = ov.imageWidth > 0 ? ov.imageHeight / ov.imageWidth : 0.66;
-  const halfH = halfW * aspect; // ドレープ表示では奥行きとして表現
+  const h = deg2rad(cam.heading);
+  const t = deg2rad(cam.tilt);
+  const r = deg2rad(cam.roll);
 
-  const center = destination(lng, lat, dist, heading);
-  const fwd = (d) => destination(center[0], center[1], d, heading);
-  const move = (pt, d, b) => destination(pt[0], pt[1], d, b);
+  // ENU（東・北・上）基底での視線ベクトル
+  const f = [Math.sin(h) * Math.sin(t), Math.cos(h) * Math.sin(t), -Math.cos(t)];
+  const right0 = [Math.cos(h), -Math.sin(h), 0];
+  const up0 = cross3(right0, f);
+  // roll を視線軸回りの回転として適用
+  const cr = Math.cos(r), sr = Math.sin(r);
+  const right = right0.map((v, i) => v * cr + up0[i] * sr);
+  const up = up0.map((v, i) => v * cr - right0[i] * sr);
 
-  const far = fwd(halfH);
-  const near = fwd(-halfH);
-  return [
-    move(far, halfW, heading - 90),   // topLeft
-    move(far, halfW, heading + 90),   // topRight
-    move(near, halfW, heading + 90),  // bottomRight
-    move(near, halfW, heading - 90),  // bottomLeft
+  // 非対称 FOV に対応した画像面の端オフセット
+  const L = dist * Math.tan(deg2rad(vv.leftFov));
+  const R = dist * Math.tan(deg2rad(vv.rightFov));
+  const T = dist * Math.tan(deg2rad(vv.topFov));
+  const B = dist * Math.tan(deg2rad(vv.bottomFov));
+
+  const corner = (side, vert) => [
+    f[0] * dist + right[0] * side + up[0] * vert,
+    f[1] * dist + right[1] * side + up[1] * vert,
+    f[2] * dist + right[2] * side + up[2] * vert,
   ];
+
+  const base = maplibregl.MercatorCoordinate.fromLngLat(
+    [cam.longitude, cam.latitude], Math.max(overlayCameraAbsAlt(ov), 0));
+  const s = base.meterInMercatorCoordinateUnits();
+  // Mercator は y が南向きに増えるため north 成分は符号反転
+  const toMerc = (v) => [base.x + v[0] * s, base.y - v[1] * s, base.z + v[2] * s];
+
+  const tl = toMerc(corner(L, T));
+  const tr = toMerc(corner(R, T));
+  const bl = toMerc(corner(L, B));
+  const br = toMerc(corner(R, B));
+
+  // TRIANGLE_STRIP: TL, TR, BL, BR / UV は画像の上端が topFov 側
+  return new Float32Array([
+    tl[0], tl[1], tl[2], 0, 0,
+    tr[0], tr[1], tr[2], 1, 0,
+    bl[0], bl[1], bl[2], 0, 1,
+    br[0], br[1], br[2], 1, 1,
+  ]);
+}
+
+/** overlay の画像テクスチャを取得（未生成・URL 変更時は作り直す） */
+function getBillboardTexture(gl, ov) {
+  const cached = billboardTextures.get(ov.id);
+  if (cached && cached.url === ov.imageUrl) return cached.tex;
+  if (cached) {
+    try { gl.deleteTexture(cached.tex); } catch { /* コンテキスト消失時は無視 */ }
+    billboardTextures.delete(ov.id);
+  }
+  const img = ov._imgEl;
+  if (!img || !img.complete || !img.naturalWidth) return null; // 読込中
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  billboardTextures.set(ov.id, { tex, url: ov.imageUrl });
+  return tex;
+}
+
+/** overlay 削除時にテクスチャを解放する */
+function disposeBillboardTexture(ovId) {
+  const cached = billboardTextures.get(ovId);
+  if (!cached) return;
+  billboardTextures.delete(ovId);
+  const gl = photoBillboardLayer._gl;
+  if (gl) { try { gl.deleteTexture(cached.tex); } catch { /* 無視 */ } }
+}
+
+/** テクスチャ描画用の HTMLImageElement を overlay に用意する */
+function ensureImageElement(ov) {
+  if (!ov.imageUrl) { ov._imgEl = null; return; }
+  if (ov._imgEl && ov._imgEl.src === ov.imageUrl) return;
+  const img = new Image();
+  img.onload = () => mapW?.raw?.triggerRepaint();
+  img.src = ov.imageUrl;
+  ov._imgEl = img;
+}
+
+/** MapLibre カスタムレイヤ本体（全 rectangle overlay を毎フレーム描画） */
+const photoBillboardLayer = {
+  id: 'photo-billboards',
+  type: 'custom',
+  renderingMode: '3d',
+
+  onAdd(map, gl) {
+    this._gl = gl;
+    if (this._program) return; // setStyle 後も GL コンテキストは同一なので再利用
+    const vsSource = `
+      attribute vec3 a_pos;
+      attribute vec2 a_uv;
+      uniform mat4 u_matrix;
+      varying vec2 v_uv;
+      void main() {
+        v_uv = a_uv;
+        vec4 p = u_matrix * vec4(a_pos, 1.0);
+        // 写真はカメラ近傍（地図のニアクリップ面より手前）に置かれることが
+        // 多いため、z をクリップ範囲内へクランプして近面クリップを回避する。
+        // 画面上の位置(x,y)は変わらない。
+        p.z = clamp(p.z, -0.999 * p.w, 0.999 * p.w);
+        gl_Position = p;
+      }`;
+    const fsSource = `
+      precision mediump float;
+      uniform sampler2D u_tex;
+      uniform float u_opacity;
+      varying vec2 v_uv;
+      void main() {
+        // テクスチャは premultiplied alpha でアップロード済み
+        gl_FragColor = texture2D(u_tex, v_uv) * u_opacity;
+      }`;
+    const compile = (type, src) => {
+      const sh = gl.createShader(type);
+      gl.shaderSource(sh, src);
+      gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+        console.error('shader compile error:', gl.getShaderInfoLog(sh));
+      }
+      return sh;
+    };
+    this._program = gl.createProgram();
+    gl.attachShader(this._program, compile(gl.VERTEX_SHADER, vsSource));
+    gl.attachShader(this._program, compile(gl.FRAGMENT_SHADER, fsSource));
+    gl.linkProgram(this._program);
+    this._aPos = gl.getAttribLocation(this._program, 'a_pos');
+    this._aUv = gl.getAttribLocation(this._program, 'a_uv');
+    this._uMatrix = gl.getUniformLocation(this._program, 'u_matrix');
+    this._uOpacity = gl.getUniformLocation(this._program, 'u_opacity');
+    this._uTex = gl.getUniformLocation(this._program, 'u_tex');
+    this._buf = gl.createBuffer();
+  },
+
+  render(gl, args) {
+    // MapLibre v5 は projection data オブジェクト、v4 以前は行列を直接渡す
+    const matrix = args?.defaultProjectionData?.mainMatrix || args;
+    if (!matrix || !this._program) return;
+
+    gl.useProgram(this._program);
+    gl.uniformMatrix4fv(this._uMatrix, false, matrix);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); // premultiplied alpha
+    gl.disable(gl.CULL_FACE);
+    // Google Earth の写真ビューと同様、写真は常に地形・建物の手前に表示する
+    // （近面クリップ回避のため z をクランプしており、深度比較は意味を持たない）
+    gl.disable(gl.DEPTH_TEST);
+    gl.depthMask(false);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this._buf);
+    gl.enableVertexAttribArray(this._aPos);
+    gl.enableVertexAttribArray(this._aUv);
+    gl.vertexAttribPointer(this._aPos, 3, gl.FLOAT, false, 20, 0);
+    gl.vertexAttribPointer(this._aUv, 2, gl.FLOAT, false, 20, 12);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1i(this._uTex, 0);
+
+    for (const ov of state.overlays) {
+      if (!ov.visible || ov.shape !== 'rectangle' || !ov.imageUrl) continue;
+      const tex = getBillboardTexture(gl, ov);
+      if (!tex) continue;
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.uniform1f(this._uOpacity, ov.opacity);
+      gl.bufferData(gl.ARRAY_BUFFER, billboardVertices(ov), gl.DYNAMIC_DRAW);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    gl.depthMask(true);
+  },
+};
+
+/**
+ * 選択中 overlay のカメラ視点へ地図カメラを移動し、写真を画面中央に表示する
+ * （Google Earth Pro の「写真ビュー」相当）。写真の FOV が地図の FOV より
+ * 広い場合は、全体が収まるよう視線方向の後方へ下がる。
+ */
+function viewPhotoFromCamera(ov) {
+  if (!ov) return;
+  const cam = ov.camera;
+  const vv = ov.viewVolume;
+  const alt = overlayCameraAbsAlt(ov);
+  const dist = billboardDistance(ov);
+
+  // 写真平面の半サイズ[m]
+  const halfH = dist * (Math.tan(deg2rad(vv.topFov)) - Math.tan(deg2rad(vv.bottomFov))) / 2;
+  const halfW = dist * (Math.tan(deg2rad(vv.rightFov)) - Math.tan(deg2rad(vv.leftFov))) / 2;
+
+  // 地図カメラの FOV（MapLibre 既定は垂直 約36.87°）
+  let mapVFovDeg = 36.87;
+  try { mapVFovDeg = mapW.raw.getVerticalFieldOfView?.() ?? 36.87; } catch { /* 既定値 */ }
+  const canvas = mapW.raw.getCanvas();
+  const vHalf = deg2rad(mapVFovDeg / 2);
+  // キャンバスが極端に小さい・細長い場合（非表示タブ等）は既定のアスペクト比を使う
+  let aspect = canvas.width / Math.max(canvas.height, 1);
+  if (!Number.isFinite(aspect) || canvas.width < 100 || aspect < 0.4 || aspect > 5) {
+    aspect = 16 / 9;
+  }
+  const hHalf = Math.atan(Math.tan(vHalf) * aspect);
+  const needDist = Math.max(halfH / Math.tan(vHalf), halfW / Math.tan(hHalf)) * 1.2;
+  const back = Math.max(0, needDist - dist);
+
+  // 視線の逆方向へ back だけ後退（水平成分と高度成分に分解）
+  const t = deg2rad(cam.tilt);
+  const [lng2, lat2] = destination(
+    cam.longitude, cam.latitude, -back * Math.sin(t), cam.heading);
+  const alt2 = Math.max(alt + back * Math.cos(t), 2);
+
+  state.suppressMapSync = true;
+  try {
+    // 地形有効時、MapLibre は既定でセンター標高を地面へ吸着させるため、
+    // カメラ高度が意図せず変わる。写真ビュー中は吸着を解除し、
+    // ユーザーが地図操作を始めたら元へ戻す。
+    if (typeof mapW.raw.setCenterClampedToGround === 'function') {
+      mapW.raw.setCenterClampedToGround(false);
+      if (!state._reclampHooked) {
+        state._reclampHooked = true;
+        mapW.on('movestart', (e) => {
+          if (e.originalEvent) { // ユーザー操作由来のときのみ
+            try { mapW.raw.setCenterClampedToGround(true); } catch { /* 無視 */ }
+          }
+        });
+      }
+    }
+    let opts;
+    if (typeof mapW.raw.calculateCameraOptionsFromCameraLngLatAltRotation === 'function') {
+      // MapLibre v5: カメラの位置・高度・姿勢から CameraOptions を直接計算
+      opts = mapW.raw.calculateCameraOptionsFromCameraLngLatAltRotation(
+        [lng2, lat2], alt2, cam.heading, clamp(cam.tilt, 0, 85), cam.roll);
+    } else {
+      // フォールバック: カメラ位置から視線方向の注視点を求めて計算
+      const lookDist = Math.max(dist, 50);
+      const [tlng, tlat] = destination(lng2, lat2, lookDist * Math.sin(t), cam.heading);
+      const tAlt = alt2 - lookDist * Math.cos(t);
+      opts = mapW.raw.calculateCameraOptionsFromTo(
+        new maplibregl.LngLat(lng2, lat2), alt2, new maplibregl.LngLat(tlng, tlat), tAlt);
+    }
+    mapW.raw.jumpTo(opts);
+  } catch (e) {
+    console.warn('写真ビューへの移動に失敗、通常移動へフォールバック:', e);
+    mapW.setCamera({
+      lng: cam.longitude, lat: cam.latitude,
+      zoom: altitudeToZoom(Math.max(alt, 50), cam.latitude),
+      bearing: cam.heading, pitch: clamp(cam.tilt, 0, 85),
+    });
+  } finally {
+    setTimeout(() => { state.suppressMapSync = false; }, 300);
+  }
 }
 
 /* =============================================================================
@@ -1183,7 +1411,7 @@ function deleteOverlay(id) {
   const ov = state.overlays[idx];
   if (!confirm(`「${ov.name}」を削除しますか？`)) return;
 
-  removePhotoPlane(ov.id);
+  disposeBillboardTexture(ov.id);
   mapW.removeMarker(`cam-${ov.id}`);
   mapW.removeMarker(`pt-${ov.id}`);
   state.overlays.splice(idx, 1);
@@ -1205,7 +1433,7 @@ function deleteOverlay(id) {
 /** 全 overlay を破棄する（KMZ 再読込時）。Blob URL も解放する。 */
 function clearAllOverlays() {
   for (const ov of state.overlays) {
-    removePhotoPlane(ov.id);
+    disposeBillboardTexture(ov.id);
     mapW.removeMarker(`cam-${ov.id}`);
     mapW.removeMarker(`pt-${ov.id}`);
     if (ov.imageUrl) URL.revokeObjectURL(ov.imageUrl);
@@ -1344,7 +1572,7 @@ async function handleImageFile(file) {
       shape,
     });
     replaceTarget._hasGps = !!gps;
-    removePhotoPlane(replaceTarget.id); // 画像ソースを作り直す
+    disposeBillboardTexture(replaceTarget.id); // テクスチャを作り直す
     notify(`画像を差し替えました: ${file.name}`, 'success');
     finalizeImageLoad(replaceTarget, gps);
     return;
@@ -1388,13 +1616,19 @@ async function handleImageFile(file) {
   finalizeImageLoad(ov, gps);
 }
 
-/** 画像読込後の共通処理（地図移動・UI 更新） */
+/** 画像読込後の共通処理（UI 更新 + 写真を画面中央にプレビュー） */
 function finalizeImageLoad(ov, gps) {
-  if (gps) {
-    mapW.flyTo(gps.longitude, gps.latitude, 16);
-  }
   updateFormFromModel();
   afterModelChange();
+  // 画像のデコード完了を待ってからカメラ視点へ移動（写真が画面中央に出る）
+  if (ov._imgEl && !ov._imgEl.complete) {
+    ov._imgEl.addEventListener('load', () => viewPhotoFromCamera(ov), { once: true });
+  }
+  viewPhotoFromCamera(ov);
+  // 地形タイル読込後に高度（relativeToGround）が確定するため、再度位置合わせ
+  mapW.once('idle', () => {
+    if (getSelected()?.id === ov.id) viewPhotoFromCamera(ov);
+  });
 }
 
 /** KMZ 内パスとして安全なファイル名に変換する */
@@ -1535,14 +1769,34 @@ async function exportKmz() {
  * 10. KMZ / KML 読込（再編集）
  * ========================================================================== */
 
-/** KML 要素から直下テキストを取得するヘルパ */
-function kmlText(parent, tagName) {
+/**
+ * 直下の子要素を localName で探す。
+ * localName 比較なので <gx:altitudeMode> のような名前空間接頭辞付き要素も拾える。
+ * 直下限定なのは、Google Earth Pro の KMZ では <Style><IconStyle><Icon> のように
+ * 同名要素が子孫に現れるため（写真本体の <Icon> と混同してはならない）。
+ */
+function directChild(parent, localName) {
   if (!parent) return null;
-  // XML の querySelector は名前空間の扱いが不安定なため getElementsByTagName を使用
-  for (const el of parent.getElementsByTagName(tagName)) {
-    if (el.parentNode === parent) return el.textContent.trim();
+  for (const el of parent.children) {
+    if (el.localName === localName) return el;
   }
   return null;
+}
+
+/** KML 要素から直下テキストを取得するヘルパ */
+function kmlText(parent, localName) {
+  const el = directChild(parent, localName);
+  return el ? el.textContent.trim() : null;
+}
+
+/** altitudeMode を UI で扱える 3 値に正規化する（gx: 拡張値も吸収） */
+function normalizeAltitudeMode(mode) {
+  if (mode === 'absolute' || mode === 'relativeToGround' || mode === 'clampToGround') return mode;
+  // Google Earth Pro は「地面より上」を gx:altitudeMode=relativeToSeaFloor で
+  // 書き出すことがあるため、SeaFloor 系は Ground 系へ読み替える
+  if (mode === 'relativeToSeaFloor') return 'relativeToGround';
+  if (mode === 'clampToSeaFloor') return 'clampToGround';
+  return 'absolute';
 }
 
 const kmlNum = (parent, tag, fallback = 0) => {
@@ -1604,14 +1858,15 @@ async function handleKmzFile(file) {
     }
 
     state.overlayCounter = state.overlays.length;
-    if (state.overlays.length > 0) {
-      selectOverlay(state.overlays[0].id);
-      const first = state.overlays[0];
-      mapW.flyTo(first.camera.longitude, first.camera.latitude, 15);
-    }
     renderOverlayList();
     updateFormFromModel();
     refreshMapVisuals();
+    if (state.overlays.length > 0) {
+      const first = state.overlays[0];
+      selectOverlay(first.id);
+      // カメラ視点へ移動して写真を画面中央に表示
+      finalizeImageLoad(first, null);
+    }
     notify(`KMZ から PhotoOverlay を ${restored} 件復元しました。`, 'success');
   } catch (e) {
     notify(`KMZ の読み込みに失敗しました: ${e.message}`, 'error');
@@ -1620,10 +1875,12 @@ async function handleKmzFile(file) {
 
 /** <PhotoOverlay> 要素 1 つを内部モデルへ変換する */
 async function parsePhotoOverlayElement(el, zip) {
-  const cameraEl = el.getElementsByTagName('Camera')[0] || null;
-  const vvEl = el.getElementsByTagName('ViewVolume')[0] || null;
-  const pointEl = el.getElementsByTagName('Point')[0] || null;
-  const iconEl = el.getElementsByTagName('Icon')[0] || null;
+  // すべて「直下の子要素」を参照する。<Style><IconStyle><Icon> のような
+  // 子孫要素（カメラアイコン等）を写真本体と誤認しないため。
+  const cameraEl = directChild(el, 'Camera');
+  const vvEl = directChild(el, 'ViewVolume');
+  const pointEl = directChild(el, 'Point');
+  const iconEl = directChild(el, 'Icon');
 
   // Point coordinates: "lng,lat,alt"
   let pt = { longitude: DEFAULT_CENTER.lng, latitude: DEFAULT_CENTER.lat, altitude: 0 };
@@ -1656,11 +1913,11 @@ async function parsePhotoOverlayElement(el, zip) {
       heading: kmlNum(cameraEl, 'heading', 0),
       tilt: kmlNum(cameraEl, 'tilt', 90),
       roll: kmlNum(cameraEl, 'roll', 0),
-      altitudeMode: kmlText(cameraEl, 'altitudeMode') || 'absolute',
+      altitudeMode: normalizeAltitudeMode(kmlText(cameraEl, 'altitudeMode')),
     },
     point: {
       ...pt,
-      altitudeMode: kmlText(pointEl, 'altitudeMode') || 'absolute',
+      altitudeMode: normalizeAltitudeMode(kmlText(pointEl, 'altitudeMode')),
     },
     viewVolume: {
       leftFov: kmlNum(vvEl, 'leftFov', -30),
@@ -1896,6 +2153,12 @@ function setupHeaderEvents() {
   $('buildings-toggle').addEventListener('change', (e) => {
     mapSettings.buildings = e.target.checked;
     mapW.setLayerVisibility('poc-3d-buildings', mapSettings.buildings);
+  });
+
+  $('photo-view-btn').addEventListener('click', () => {
+    const ov = getSelected();
+    if (!ov) { notify('先に PhotoOverlay を選択してください', 'warn'); return; }
+    viewPhotoFromCamera(ov);
   });
 }
 
