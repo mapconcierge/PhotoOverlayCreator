@@ -4,6 +4,10 @@ Google Earth Pro の「写真オーバーレイ（PhotoOverlay）編集」に近
 ストリートレベル画像を 3D 地図空間に配置・調整して、KML / KMZ の `PhotoOverlay` を
 生成・再編集できる完全静的ウェブアプリケーションです。GitHub Pages 上でそのまま動作します。
 
+## DEMO Site
+https://mapconcierge.github.io/PhotoOverlayCreator/
+
+
 ## 主な機能
 
 - 画像（JPEG / PNG / WebP / HEIF / TIFF）の読み込みと 3D 地図上への配置
