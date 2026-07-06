@@ -92,6 +92,14 @@ html, body {
 #center-pane { position: relative; min-width: 0; }
 #map { position: absolute; inset: 0; }
 
+#photo-view-btn {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 5;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
 #map-status {
   position: absolute;
   left: 8px;
