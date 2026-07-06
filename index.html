@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PhotoOverlay Creator — KML PhotoOverlay 編集ツール</title>
+  <meta name="description" content="ストリートレベル画像を3D地図空間に配置し、KML/KMZ の PhotoOverlay を生成・再編集する完全静的ウェブアプリ">
+
+  <!-- ===== CDN ライブラリ（バージョン固定） ===== -->
+  <!-- MapLibre GL JS 5.6.0 : 地図描画（roll 対応） -->
+  <link href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css" rel="stylesheet">
+  <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+  <!-- JSZip 3.10.1 : KMZ の生成・解凍 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- piexifjs 1.0.6 : JPEG Exif GPS 書き込み -->
+  <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
+  <!-- ExifReader 4.23.3 : 画像メタデータ（Exif GPS 等）読み込み -->
+  <script src="https://cdn.jsdelivr.net/npm/exifreader@4.23.3/dist/exif-reader.min.js"></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ===== ヘッダー（地図表示設定） ===== -->
+  <header id="app-header">
+    <h1 id="app-title">PhotoOverlay Creator</h1>
+
+    <div class="header-group">
+      <label for="basemap-select">背景地図</label>
+      <select id="basemap-select" title="背景レイヤを切り替えます">
+        <option value="openfreemap" selected>OpenFreeMap ベクトル</option>
+        <option value="esri">Esri World Imagery</option>
+        <option value="gsi">国土地理院 シームレス空中写真</option>
+        <option value="bing" disabled>Bing Aerial（APIキー必須のため無効）</option>
+      </select>
+    </div>
+
+    <div class="header-group">
+      <label for="terrain-toggle">
+        <input type="checkbox" id="terrain-toggle" checked> 3D地形
+      </label>
+      <label for="terrain-exaggeration">誇張</label>
+      <input type="range" id="terrain-exaggeration" min="0" max="3" step="0.1" value="1"
+             title="地形の誇張率（terrain exaggeration）">
+      <output id="terrain-exaggeration-value" for="terrain-exaggeration">1.0</output>
+    </div>
+
+    <div class="header-group">
+      <label for="hillshade-toggle">
+        <input type="checkbox" id="hillshade-toggle"> 陰影
+      </label>
+      <label for="buildings-toggle">
+        <input type="checkbox" id="buildings-toggle" checked> 3D建物
+      </label>
+      <label for="sync-toggle" title="地図の視点操作と選択中 PhotoOverlay の Camera 値を双方向同期します">
+        <input type="checkbox" id="sync-toggle"> カメラ同期
+      </label>
+      <label for="click-point-toggle" title="ONにすると地図クリックで Point 位置を設定します">
+        <input type="checkbox" id="click-point-toggle"> クリックでPoint設定
+      </label>
+    </div>
+  </header>
+
+  <!-- ===== 3ペイン本体 ===== -->
+  <main id="app-main">
+
+    <!-- ===== 左ペイン：画像・データ管理 ===== -->
+    <aside id="left-pane" aria-label="画像・データ管理">
+      <section class="pane-section">
+        <h2>データ読込</h2>
+        <div class="button-row">
+          <button id="load-image-btn" type="button" title="画像ファイルを読み込んで新しい PhotoOverlay を作成します">画像を読込</button>
+          <button id="load-kmz-btn" type="button" title="KMZ ファイルを読み込んで PhotoOverlay を復元します">KMZ を読込</button>
+        </div>
+        <input type="file" id="image-file-input" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.tif,.tiff,image/*" hidden aria-label="画像ファイル選択">
+        <input type="file" id="kmz-file-input" accept=".kmz,.kml" hidden aria-label="KMZ/KMLファイル選択">
+        <div class="field-row">
+          <label for="pano-tolerance">360°判定 許容誤差</label>
+          <input type="number" id="pano-tolerance" min="0" max="0.5" step="0.01" value="0.02"
+                 title="幅÷高さ が 2.0±この値なら Equirectangular 候補と判定">
+        </div>
+      </section>
+
+      <section class="pane-section">
+        <h2>現在の画像</h2>
+        <div id="image-preview-box">
+          <img id="image-preview" alt="選択中の PhotoOverlay 画像プレビュー" hidden>
+          <p id="image-preview-empty">画像未読込</p>
+        </div>
+        <dl id="image-info">
+          <dt>ファイル名</dt><dd id="info-filename">—</dd>
+          <dt>サイズ</dt><dd id="info-size">—</dd>
+          <dt>形式</dt><dd id="info-type">—</dd>
+          <dt>Exif GPS</dt><dd id="info-gps">—</dd>
+          <dt>360°判定</dt><dd id="info-pano">—</dd>
+        </dl>
+      </section>
+
+      <section class="pane-section" id="overlay-list-section">
+        <h2>PhotoOverlay 一覧</h2>
+        <ul id="overlay-list" aria-label="PhotoOverlay 一覧"></ul>
+        <p id="overlay-list-empty">PhotoOverlay がありません</p>
+      </section>
+    </aside>
+
+    <!-- ===== 中央ペイン：3D地図 ===== -->
+    <section id="center-pane" aria-label="3D地図">
+      <div id="map" role="application" aria-label="MapLibre 3D地図"></div>
+      <div id="map-status" aria-live="polite"></div>
+    </section>
+
+    <!-- ===== 右ペイン：PhotoOverlay 編集 ===== -->
+    <aside id="right-pane" aria-label="PhotoOverlay 編集">
+      <fieldset id="edit-form" disabled>
+        <legend class="sr-only">PhotoOverlay 編集フォーム</legend>
+
+        <!-- Overlay -->
+        <section class="pane-section">
+          <h2>Overlay</h2>
+          <div class="field-row">
+            <label for="ov-name">名前</label>
+            <input type="text" id="ov-name">
+          </div>
+          <div class="field-row">
+            <label for="ov-desc">説明</label>
+            <textarea id="ov-desc" rows="2"></textarea>
+          </div>
+          <div class="field-row">
+            <label for="ov-shape">Shape</label>
+            <select id="ov-shape">
+              <option value="rectangle">rectangle（矩形）</option>
+              <option value="sphere">sphere（球面パノラマ）</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <label for="ov-opacity">不透明度</label>
+            <input type="range" id="ov-opacity" min="0" max="1" step="0.01" value="1">
+            <output id="ov-opacity-value" for="ov-opacity">1.00</output>
+          </div>
+          <div class="field-row">
+            <label for="ov-visible"><input type="checkbox" id="ov-visible" checked> 表示</label>
+          </div>
+          <div class="field-row">
+            <label for="ov-href">Icon href ファイル名</label>
+            <input type="text" id="ov-href" title="KMZ 内での画像相対パス">
+          </div>
+          <div class="button-row">
+            <button id="replace-image-btn" type="button" title="選択中の PhotoOverlay の画像を別ファイルに差し替えます">画像を差し替え</button>
+          </div>
+        </section>
+
+        <!-- Camera -->
+        <section class="pane-section">
+          <h2>Camera（カメラ位置・姿勢）</h2>
+          <div class="field-row">
+            <label for="cam-lat">緯度</label>
+            <input type="number" id="cam-lat" step="0.000001">
+          </div>
+          <div class="field-row">
+            <label for="cam-lng">経度</label>
+            <input type="number" id="cam-lng" step="0.000001">
+          </div>
+          <div class="field-row">
+            <label for="cam-alt">高度 (m)</label>
+            <input type="number" id="cam-alt" step="0.1">
+            <select id="cam-altmode" aria-label="Camera の altitudeMode">
+              <option value="absolute">absolute</option>
+              <option value="relativeToGround">relativeToGround</option>
+              <option value="clampToGround">clampToGround</option>
+            </select>
+          </div>
+          <div class="field-row slider-row">
+            <label for="cam-heading">Heading</label>
+            <input type="number" id="cam-heading" min="0" max="360" step="0.01">
+            <input type="range" id="cam-heading-slider" min="0" max="360" step="0.1" aria-label="Heading スライダー">
+          </div>
+          <div class="field-row slider-row">
+            <label for="cam-tilt">Tilt</label>
+            <input type="number" id="cam-tilt" min="0" max="180" step="0.01">
+            <input type="range" id="cam-tilt-slider" min="0" max="180" step="0.1" aria-label="Tilt スライダー">
+          </div>
+          <div class="field-row slider-row">
+            <label for="cam-roll">Roll</label>
+            <input type="number" id="cam-roll" min="-180" max="180" step="0.01">
+            <input type="range" id="cam-roll-slider" min="-180" max="180" step="0.1" aria-label="Roll スライダー">
+          </div>
+          <p class="hint">※ Roll は KML 出力値として保持されます（MapLibre のバージョンにより地図表示へ反映できない場合があります）。</p>
+        </section>
+
+        <!-- Point -->
+        <section class="pane-section">
+          <h2>Point（オーバーレイ配置位置）</h2>
+          <div class="field-row">
+            <label for="pt-lat">緯度</label>
+            <input type="number" id="pt-lat" step="0.000001">
+          </div>
+          <div class="field-row">
+            <label for="pt-lng">経度</label>
+            <input type="number" id="pt-lng" step="0.000001">
+          </div>
+          <div class="field-row">
+            <label for="pt-alt">高度 (m)</label>
+            <input type="number" id="pt-alt" step="0.1">
+            <select id="pt-altmode" aria-label="Point の altitudeMode">
+              <option value="absolute">absolute</option>
+              <option value="relativeToGround">relativeToGround</option>
+              <option value="clampToGround">clampToGround</option>
+            </select>
+          </div>
+          <div class="button-row">
+            <button id="point-from-camera-btn" type="button"
+                    title="カメラ位置から視線方向へ near×2 の距離に Point を配置します">カメラ前方へ Point 配置</button>
+          </div>
+        </section>
+
+        <!-- ViewVolume -->
+        <section class="pane-section">
+          <h2>ViewVolume（視野）</h2>
+          <div class="field-row slider-row">
+            <label for="fov-h">Horizontal FOV</label>
+            <input type="number" id="fov-h" min="0.1" max="179" step="0.01">
+            <input type="range" id="fov-h-slider" min="1" max="179" step="0.1" aria-label="水平視野角スライダー">
+          </div>
+          <div class="field-row slider-row">
+            <label for="fov-v">Vertical FOV</label>
+            <input type="number" id="fov-v" min="0.1" max="179" step="0.01">
+            <input type="range" id="fov-v-slider" min="1" max="179" step="0.1" aria-label="垂直視野角スライダー">
+          </div>
+          <div class="field-row">
+            <label for="fov-lock"><input type="checkbox" id="fov-lock" checked> 縦横比を固定</label>
+          </div>
+          <div class="field-row">
+            <label for="fov-near">Near (m)</label>
+            <input type="number" id="fov-near" min="0" step="0.1">
+          </div>
+          <details id="fov-advanced">
+            <summary>詳細設定（left / right / top / bottom FOV）</summary>
+            <div class="field-row">
+              <label for="fov-left">leftFov</label>
+              <input type="number" id="fov-left" min="-179" max="0" step="0.01">
+            </div>
+            <div class="field-row">
+              <label for="fov-right">rightFov</label>
+              <input type="number" id="fov-right" min="0" max="179" step="0.01">
+            </div>
+            <div class="field-row">
+              <label for="fov-top">topFov</label>
+              <input type="number" id="fov-top" min="0" max="179" step="0.01">
+            </div>
+            <div class="field-row">
+              <label for="fov-bottom">bottomFov</label>
+              <input type="number" id="fov-bottom" min="-179" max="0" step="0.01">
+            </div>
+          </details>
+        </section>
+      </fieldset>
+
+      <!-- Export -->
+      <section class="pane-section" id="export-section">
+        <h2>Export</h2>
+        <div class="button-col">
+          <button id="export-kml-btn" type="button" title="すべての PhotoOverlay を含む KML をダウンロード">KML をダウンロード</button>
+          <button id="export-kmz-btn" type="button" title="画像を同梱した KMZ をダウンロード">KMZ をダウンロード</button>
+          <button id="export-jpeg-btn" type="button" title="選択中の JPEG に GPS Exif を書き込んでダウンロード（JPEG のみ正式対応）">GPS Exif 書込済み JPEG</button>
+          <button id="export-json-btn" type="button" title="現在の設定を JSON として保存">設定を JSON 保存</button>
+          <button id="import-json-btn" type="button" title="JSON 設定を読み込み（画像は再読込が必要）">JSON 設定を読込</button>
+          <input type="file" id="json-file-input" accept=".json,application/json" hidden aria-label="JSON設定ファイル選択">
+        </div>
+        <p class="hint" id="exif-support-note">GPS Exif 書き込みは JPEG のみ正式対応です。PNG / WebP / HEIF / TIFF は読込・KML / KMZ 出力に対応しますが、Exif 書き込みは非対応です。</p>
+      </section>
+    </aside>
+  </main>
+
+  <!-- ===== 360°画像判定ダイアログ ===== -->
+  <dialog id="pano-dialog">
+    <h2>360°パノラマ画像の可能性があります</h2>
+    <p>読み込んだ画像の縦横比が約 2:1（Equirectangular）です。どちらとして扱いますか？</p>
+    <div class="button-row">
+      <button id="pano-sphere-btn" type="button" title="KML に &lt;shape&gt;sphere&lt;/shape&gt; を出力します">Sphere（球面パノラマ）</button>
+      <button id="pano-rect-btn" type="button" title="通常の矩形 PhotoOverlay として扱います">Rectangle（通常）</button>
+    </div>
+  </dialog>
+
+  <!-- ===== 通知領域 ===== -->
+  <div id="toast-container" aria-live="polite" aria-label="通知"></div>
+
+  <script src="main.js"></script>
+</body>
+</html>
