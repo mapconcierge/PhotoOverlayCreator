@@ -28,6 +28,8 @@ https://mapconcierge.github.io/PhotoOverlayCreator/
   真上から表示。マーカーのドラッグで位置を簡易調整可能
 - **ストリートビュー連携**：Google Street View / Mapillary を地図下部に表示し、
   地上視点で写真の位置合わせが可能（「視点を Camera へ適用」で位置・方位・傾きを反映）
+- **多言語 UI**：英語（既定）・イタリア語・スペイン語・ポルトガル語・日本語を
+  ヘッダーの 🌐 セレクタで切替（選択はブラウザに保存）
 - KML / KMZ（doc.kml + images/）の生成・ダウンロード
 - 既存 KMZ の読み込み → PhotoOverlay の復元・再編集・再出力（複数対応、並び替え・複製・削除）
 - JPEG への GPS Exif（GPSLatitude / GPSLongitude / GPSAltitude ほか）書き込み
@@ -41,6 +43,7 @@ https://mapconcierge.github.io/PhotoOverlayCreator/
 ├── index.html   … UI（3ペイン構成）と CDN 読込
 ├── style.css    … スタイル（レスポンシブ対応）
 ├── main.js      … アプリ本体（素の JavaScript、ビルド不要）
+├── i18n.js      … UI 多言語辞書（en / it / es / pt / ja、既定は英語）
 └── README.md
 ```
 
