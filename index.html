@@ -16,6 +16,9 @@
   <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
   <!-- ExifReader 4.23.3 : 画像メタデータ（Exif GPS 等）読み込み -->
   <script src="https://cdn.jsdelivr.net/npm/exifreader@4.23.3/dist/exif-reader.min.js"></script>
+  <!-- Mapillary JS 4.1.2 : Mapillary ストリートビュー表示（利用時のみ初期化） -->
+  <link href="https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.css" rel="stylesheet">
+  <script src="https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.js"></script>
 
   <link rel="stylesheet" href="style.css">
 </head>
@@ -59,6 +62,15 @@
         <input type="checkbox" id="click-point-toggle"> クリックでPoint設定
       </label>
     </div>
+
+    <div class="header-group">
+      <label for="sv-provider">ストリートビュー</label>
+      <select id="sv-provider" title="地上視点のストリートビュー表示を切り替えます">
+        <option value="none" selected>なし</option>
+        <option value="google">Google Street View</option>
+        <option value="mapillary">Mapillary</option>
+      </select>
+    </div>
   </header>
 
   <!-- ===== 3ペイン本体 ===== -->
@@ -94,6 +106,10 @@
           <dt>Exif GPS</dt><dd id="info-gps">—</dd>
           <dt>360°判定</dt><dd id="info-pano">—</dd>
         </dl>
+        <h3 class="mini-map-title">ミニ地図（直下視）</h3>
+        <div id="mini-map" role="application"
+             aria-label="選択中 PhotoOverlay の直下視ミニ地図。カメラと配置位置をドラッグで移動できます"></div>
+        <p class="hint">📷 Camera / 🖼 Point をドラッグで移動。青い扇形は FOV 範囲。</p>
       </section>
 
       <section class="pane-section" id="overlay-list-section">
@@ -109,6 +125,33 @@
       <div id="map-status" aria-live="polite"></div>
       <button id="photo-view-btn" type="button"
               title="選択中の PhotoOverlay のカメラ視点へ移動し、写真を画面中央に表示します">📷 写真ビュー</button>
+
+      <!-- ストリートビューパネル（プロバイダ選択時のみ表示） -->
+      <section id="streetview-panel" hidden aria-label="ストリートビュー">
+        <div class="sv-toolbar">
+          <div id="sv-google-config" class="sv-config" hidden>
+            <label for="google-api-key">Google Maps APIキー</label>
+            <input type="password" id="google-api-key" placeholder="APIキーを入力"
+                   autocomplete="off" aria-label="Google Maps APIキー">
+            <button id="google-key-apply" type="button" title="APIキーを保存して Street View を初期化します">適用</button>
+            <button id="google-open-external" type="button"
+                    title="APIキー不要。Camera 位置のストリートビューを Google マップの新しいタブで開きます">Googleマップで開く</button>
+          </div>
+          <div id="sv-mapillary-config" class="sv-config" hidden>
+            <label for="mapillary-token">Mapillary トークン</label>
+            <input type="password" id="mapillary-token" placeholder="MLY|..."
+                   autocomplete="off" aria-label="Mapillary アクセストークン">
+            <button id="mapillary-token-apply" type="button" title="アクセストークンを保存して Mapillary を初期化します">適用</button>
+          </div>
+          <div class="sv-actions">
+            <button id="sv-goto-camera" type="button"
+                    title="選択中 PhotoOverlay の Camera 位置のストリートビューへ移動します">Camera位置へ</button>
+            <button id="sv-apply-pose" type="button"
+                    title="ストリートビューの現在の視点（位置・方位・傾き）を Camera に反映します">視点をCameraへ適用</button>
+          </div>
+        </div>
+        <div id="streetview-container"></div>
+      </section>
     </section>
 
     <!-- ===== 右ペイン：PhotoOverlay 編集 ===== -->
