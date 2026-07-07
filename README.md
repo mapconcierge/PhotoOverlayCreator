@@ -24,6 +24,10 @@ https://mapconcierge.github.io/PhotoOverlayCreator/
   写真を画面中央に表示（「📷 写真ビュー」ボタンでいつでも再現）
 - 地図上での編集：Point / Camera マーカーのドラッグ、地図クリックでの Point 設定、
   視錐台（heading / tilt / roll ラベル付き）と写真表示のリアルタイム更新
+- **ミニ地図（直下視）**：左ペインに選択中 PhotoOverlay の Camera / Point / FOV 範囲を
+  真上から表示。マーカーのドラッグで位置を簡易調整可能
+- **ストリートビュー連携**：Google Street View / Mapillary を地図下部に表示し、
+  地上視点で写真の位置合わせが可能（「視点を Camera へ適用」で位置・方位・傾きを反映）
 - KML / KMZ（doc.kml + images/）の生成・ダウンロード
 - 既存 KMZ の読み込み → PhotoOverlay の復元・再編集・再出力（複数対応、並び替え・複製・削除）
 - JPEG への GPS Exif（GPSLatitude / GPSLongitude / GPSAltitude ほか）書き込み
@@ -72,10 +76,27 @@ GitHub Actions の設定は不要です。
 
 | ライブラリ | バージョン | 用途 | CDN |
 |---|---|---|---|
-| MapLibre GL JS | 5.6.0 | 3D 地図描画（roll 対応） | unpkg |
+| MapLibre GL JS | 5.6.0 | 3D 地図描画（roll 対応）・ミニ地図 | unpkg |
 | JSZip | 3.10.1 | KMZ の生成・解凍 | cdnjs |
 | piexifjs | 1.0.6 | JPEG Exif GPS 書き込み | jsDelivr |
 | ExifReader | 4.23.3 | 画像メタデータ（Exif GPS 等）読み取り | jsDelivr |
+| Mapillary JS | 4.1.2 | Mapillary ストリートビュー表示 | unpkg |
+| Google Maps JavaScript API | weekly | Google Street View 表示（利用時のみ動的ロード） | Google |
+
+## ストリートビュー連携
+
+ヘッダーの「ストリートビュー」からプロバイダを選択すると、地図下部に
+ストリートビューパネルが表示されます。地上視点を確認しながら
+「視点を Camera へ適用」ボタンで、その位置・方位・傾きを選択中
+PhotoOverlay の Camera に反映できます（高度は地上 2.5m / relativeToGround）。
+
+| プロバイダ | 必要なもの | 備考 |
+|---|---|---|
+| Google Street View | Google Maps JavaScript API キー | [Google Cloud Console](https://console.cloud.google.com/) で取得（課金設定が必要）。キーなしでも「Googleマップで開く」で新しいタブに表示可能 |
+| Mapillary | アクセストークン（無料） | [Mapillary Developers](https://www.mapillary.com/dashboard/developers) でクライアントトークンを取得 |
+
+- キー・トークンはブラウザの `localStorage` にのみ保存され、それぞれの API 以外へ送信されません
+- 本体アプリは引き続きキー不要で動作します（ストリートビューはオプション機能）
 
 ## 使用データソース
 
@@ -152,6 +173,11 @@ output.kmz
   画像が同梱されるため、KMZ での保存を推奨）。
 - **タイルの CORS**:企業ネットワーク等でタイル取得がブロックされた場合は
   画面右下に警告を表示します。別のベースマップへの切り替えをお試しください。
+- **Google Street View**:Google Maps JavaScript API の利用規約・課金体系に
+  従ってください。API キーには HTTP リファラ制限を設定することを推奨します。
+- **Mapillary**:付近に投稿画像が無い場所では表示できません（検索範囲 約±300m）。
+  Mapillary の視点情報（tilt）は画像により取得できない場合があり、その際は
+  heading（方位）のみ Camera へ反映されます。
 - Google Earth（デスクトップ版）は PhotoOverlay の表示に最も忠実です。
   Google Earth Web は PhotoOverlay の表示が限定的な場合があります。
 

@@ -561,6 +561,9 @@ function refreshMapVisuals() {
   // --- 3D 写真ビルボード（テクスチャ元画像を準備して再描画を要求） ---
   for (const ov of state.overlays) ensureImageElement(ov);
   mapW.raw.triggerRepaint();
+
+  // --- ミニ地図（左ペイン） ---
+  updateMiniMap();
 }
 
 /** 1 overlay 分の Camera / Point マーカーを作成・更新する */
@@ -981,6 +984,431 @@ function viewPhotoFromCamera(ov) {
   } finally {
     setTimeout(() => { state.suppressMapSync = false; }, 300);
   }
+}
+
+/* =============================================================================
+ * 6.5 ミニ地図（左ペイン・二次元直下視）
+ *
+ * 選択中 PhotoOverlay の Camera / Point を真上から確認・ドラッグ移動できる
+ * 小型の 2D 地図。FOV 範囲を扇形で塗りつぶし表示する。
+ * ========================================================================== */
+
+let miniMap = null;
+const miniMarkers = { cam: null, pt: null };
+let miniLastSelectedId = null;
+
+/** 扇形（FOV）リングを生成する */
+function fanRing(lng, lat, heading, hFov, len, steps = 20) {
+  const ring = [[lng, lat]];
+  for (let i = 0; i <= steps; i++) {
+    ring.push(destination(lng, lat, len, heading - hFov / 2 + (hFov * i) / steps));
+  }
+  ring.push([lng, lat]);
+  return ring;
+}
+
+/** ミニ地図用の FOV GeoJSON（選択中 overlay のみ） */
+function miniFrustumFC(ov) {
+  if (!ov || !ov.visible) return emptyFC();
+  const { longitude: lng, latitude: lat, heading } = ov.camera;
+  const dist = billboardDistance(ov);
+  let ring;
+  if (ov.shape === 'sphere') {
+    // 球面パノラマは全方位なので円で表現
+    const r = Math.max(dist * 0.6, 15);
+    ring = [];
+    for (let i = 0; i <= 32; i++) ring.push(destination(lng, lat, r, (360 * i) / 32));
+  } else {
+    const hFov = ov.viewVolume.rightFov - ov.viewVolume.leftFov;
+    ring = fanRing(lng, lat, heading, hFov, Math.max(dist * 1.2, 30));
+  }
+  return {
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', properties: {},
+      geometry: { type: 'Polygon', coordinates: [ring] } }],
+  };
+}
+
+/** ミニ地図を初期化する（航空写真ベース・回転なしの直下視固定） */
+function initMiniMap() {
+  if (!MapWrapper.isWebGLSupported()) return;
+  try {
+    miniMap = new maplibregl.Map({
+      container: 'mini-map',
+      style: buildRasterStyle(BASEMAPS.esri),
+      center: [DEFAULT_CENTER.lng, DEFAULT_CENTER.lat],
+      zoom: 14,
+      pitch: 0,
+      maxPitch: 0,          // 常に直下視
+      dragRotate: false,
+      attributionControl: { compact: true },
+    });
+    miniMap.touchZoomRotate.disableRotation();
+    miniMap.keyboard.disableRotation?.();
+
+    miniMap.on('load', () => {
+      miniMap.addSource('mini-frustum', { type: 'geojson', data: emptyFC() });
+      miniMap.addLayer({
+        id: 'mini-frustum-fill', type: 'fill', source: 'mini-frustum',
+        paint: { 'fill-color': '#4c8dff', 'fill-opacity': 0.3 },
+      });
+      miniMap.addLayer({
+        id: 'mini-frustum-line', type: 'line', source: 'mini-frustum',
+        paint: { 'line-color': '#4c8dff', 'line-width': 1.5 },
+      });
+      updateMiniMap();
+    });
+
+    // メイン地図と同じトグルで、ミニ地図クリックでも Point を設定できる
+    miniMap.on('click', (e) => {
+      if (!$('click-point-toggle').checked) return;
+      const ov = getSelected();
+      if (!ov) return;
+      ov.point.longitude = e.lngLat.lng;
+      ov.point.latitude = e.lngLat.lat;
+      updateFormFromModel();
+      afterModelChange();
+    });
+  } catch (e) {
+    console.warn('ミニ地図の初期化に失敗:', e);
+    miniMap = null;
+  }
+}
+
+/** ミニ地図のマーカー・FOV・表示範囲を選択中 overlay に合わせて更新する */
+function updateMiniMap() {
+  if (!miniMap) return;
+  const ov = getSelected();
+
+  // FOV 扇形
+  const src = miniMap.getSource('mini-frustum');
+  if (src) src.setData(miniFrustumFC(ov));
+
+  if (!ov) {
+    miniMarkers.cam?.remove(); miniMarkers.cam = null;
+    miniMarkers.pt?.remove(); miniMarkers.pt = null;
+    miniLastSelectedId = null;
+    return;
+  }
+
+  // Camera マーカー（初回のみ生成、ドラッグでモデル更新）
+  if (!miniMarkers.cam) {
+    const el = document.createElement('div');
+    el.className = 'marker-camera mini';
+    el.textContent = '📷';
+    el.title = 'Camera（ドラッグで移動）';
+    el.setAttribute('aria-label', 'ミニ地図のカメラ位置マーカー');
+    miniMarkers.cam = new maplibregl.Marker({ element: el, draggable: true })
+      .setLngLat([ov.camera.longitude, ov.camera.latitude])
+      .addTo(miniMap);
+    miniMarkers.cam.on('dragend', () => {
+      const sel = getSelected();
+      if (!sel) return;
+      const p = miniMarkers.cam.getLngLat();
+      sel.camera.longitude = p.lng;
+      sel.camera.latitude = p.lat;
+      updateFormFromModel();
+      afterModelChange();
+      maybeSyncMapFromCamera(sel);
+    });
+  } else {
+    miniMarkers.cam.setLngLat([ov.camera.longitude, ov.camera.latitude]);
+  }
+
+  // Point マーカー
+  if (!miniMarkers.pt) {
+    const el = document.createElement('div');
+    el.className = 'marker-point mini';
+    el.title = 'Point（ドラッグで移動）';
+    el.setAttribute('aria-label', 'ミニ地図の配置位置マーカー');
+    miniMarkers.pt = new maplibregl.Marker({ element: el, draggable: true })
+      .setLngLat([ov.point.longitude, ov.point.latitude])
+      .addTo(miniMap);
+    miniMarkers.pt.on('dragend', () => {
+      const sel = getSelected();
+      if (!sel) return;
+      const p = miniMarkers.pt.getLngLat();
+      sel.point.longitude = p.lng;
+      sel.point.latitude = p.lat;
+      updateFormFromModel();
+      afterModelChange();
+    });
+  } else {
+    miniMarkers.pt.setLngLat([ov.point.longitude, ov.point.latitude]);
+  }
+  const ptEl = miniMarkers.pt.getElement();
+  ptEl.textContent = ov.shape === 'sphere' ? '🌐' : '🖼';
+  ptEl.className = `marker-point mini${ov.shape === 'sphere' ? ' sphere' : ''}`;
+
+  // 選択が変わったときのみ両マーカーが収まるよう表示範囲を調整
+  if (miniLastSelectedId !== ov.id) {
+    miniLastSelectedId = ov.id;
+    const b = new maplibregl.LngLatBounds();
+    b.extend([ov.camera.longitude, ov.camera.latitude]);
+    b.extend([ov.point.longitude, ov.point.latitude]);
+    miniMap.fitBounds(b, { padding: 50, maxZoom: 17, duration: 300 });
+  }
+}
+
+/* =============================================================================
+ * 6.6 ストリートビュー（Google Street View / Mapillary）
+ *
+ * 地上視点で写真の位置合わせを行うための表示。Google Street View は
+ * Google Maps JavaScript API キー、Mapillary はアクセストークンが必要
+ * （いずれもユーザー入力・localStorage 保存。詳細は README）。
+ * ========================================================================== */
+
+const streetView = {
+  provider: 'none',
+  googleKey: localStorage.getItem('poc-google-api-key') || '',
+  googlePano: null,
+  googleLoading: null, // ロード中 Promise
+  mapillaryToken: localStorage.getItem('poc-mapillary-token') || '',
+  mapillaryViewer: null,
+};
+
+/** コンテナへプレースホルダ文言を表示する */
+function svPlaceholder(html) {
+  $('streetview-container').innerHTML =
+    `<div class="sv-placeholder">${html}</div>`;
+}
+
+/** 既存のビューアを破棄してコンテナを空にする */
+function destroyStreetViewers() {
+  if (streetView.mapillaryViewer) {
+    try { streetView.mapillaryViewer.remove(); } catch { /* 無視 */ }
+    streetView.mapillaryViewer = null;
+  }
+  streetView.googlePano = null; // Google は DOM 破棄のみで良い
+  $('streetview-container').innerHTML = '';
+}
+
+/** プロバイダ切替（none | google | mapillary） */
+function setStreetViewProvider(provider) {
+  streetView.provider = provider;
+  const panel = $('streetview-panel');
+  const centerPane = $('center-pane') || document.getElementById('center-pane');
+
+  destroyStreetViewers();
+  $('sv-google-config').hidden = provider !== 'google';
+  $('sv-mapillary-config').hidden = provider !== 'mapillary';
+  panel.hidden = provider === 'none';
+  centerPane.classList.toggle('with-sv', provider !== 'none');
+  mapW?.raw?.resize();
+
+  if (provider === 'google') {
+    if (streetView.googleKey) {
+      initGoogleStreetView();
+    } else {
+      svPlaceholder('Google Street View の表示には Google Maps JavaScript API キーが必要です。<br>' +
+        '上の欄にキーを入力して「適用」を押してください。<br>' +
+        'キーなしの場合は「Googleマップで開く」で新しいタブに表示できます。');
+    }
+  } else if (provider === 'mapillary') {
+    if (streetView.mapillaryToken) {
+      initMapillaryViewer();
+    } else {
+      svPlaceholder('Mapillary の表示にはアクセストークン（無料）が必要です。<br>' +
+        '<a href="https://www.mapillary.com/dashboard/developers" target="_blank" rel="noopener">Mapillary Developers</a> ' +
+        'でクライアントトークンを取得し、上の欄に入力して「適用」を押してください。');
+    }
+  }
+}
+
+/** Google Maps JavaScript API を動的ロードする */
+function loadGoogleMapsApi(key) {
+  if (window.google?.maps?.StreetViewPanorama) return Promise.resolve();
+  if (streetView.googleLoading) return streetView.googleLoading;
+  streetView.googleLoading = new Promise((resolve, reject) => {
+    window.__pocGmapsReady = () => resolve();
+    const s = document.createElement('script');
+    s.src = 'https://maps.googleapis.com/maps/api/js?key=' +
+      encodeURIComponent(key) + '&v=weekly&loading=async&callback=__pocGmapsReady';
+    s.onerror = () => {
+      streetView.googleLoading = null;
+      reject(new Error('Google Maps API の読み込みに失敗しました（キー・ネットワークを確認）'));
+    };
+    document.head.appendChild(s);
+  });
+  return streetView.googleLoading;
+}
+
+/** Google Street View を初期化して Camera 位置付近を表示する */
+async function initGoogleStreetView() {
+  const ov = getSelected();
+  const lat = ov?.camera.latitude ?? mapW.getCamera().lat;
+  const lng = ov?.camera.longitude ?? mapW.getCamera().lng;
+  try {
+    svPlaceholder('Google Street View を読み込み中…');
+    await loadGoogleMapsApi(streetView.googleKey);
+    $('streetview-container').innerHTML = '';
+    streetView.googlePano = new google.maps.StreetViewPanorama(
+      $('streetview-container'), {
+        position: { lat, lng },
+        pov: {
+          heading: ov?.camera.heading ?? 0,
+          pitch: ov ? clamp(ov.camera.tilt - 90, -90, 90) : 0,
+        },
+        addressControl: false,
+        motionTracking: false,
+        fullscreenControl: false,
+      });
+    notify('Google Street View を初期化しました。', 'success');
+  } catch (e) {
+    svPlaceholder('Google Street View の初期化に失敗しました。');
+    notify(e.message, 'error');
+  }
+}
+
+/** Mapillary Graph API で指定地点近傍の画像 ID を検索する */
+async function findMapillaryImageId(lng, lat) {
+  const d = 0.003; // 約 300m 四方
+  const url = 'https://graph.mapillary.com/images?access_token=' +
+    encodeURIComponent(streetView.mapillaryToken) +
+    `&fields=id&bbox=${lng - d},${lat - d},${lng + d},${lat + d}&limit=1`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Mapillary API エラー（HTTP ${res.status}。トークンを確認してください）`);
+  const data = await res.json();
+  return data.data?.[0]?.id || null;
+}
+
+/** Mapillary ビューアを初期化して Camera 位置付近を表示する */
+async function initMapillaryViewer() {
+  if (typeof mapillary === 'undefined') {
+    svPlaceholder('Mapillary JS の読み込みに失敗しました（CDN・ネットワークを確認）。');
+    return;
+  }
+  const ov = getSelected();
+  const lat = ov?.camera.latitude ?? mapW.getCamera().lat;
+  const lng = ov?.camera.longitude ?? mapW.getCamera().lng;
+  try {
+    svPlaceholder('Mapillary 画像を検索中…');
+    const imageId = await findMapillaryImageId(lng, lat);
+    if (!imageId) {
+      svPlaceholder('この付近に Mapillary 画像が見つかりませんでした。<br>' +
+        '「Camera位置へ」ボタンで別の場所を再検索できます。');
+      notify('付近に Mapillary 画像がありません（検索範囲 約±300m）。', 'warn');
+      return;
+    }
+    $('streetview-container').innerHTML = '';
+    streetView.mapillaryViewer = new mapillary.Viewer({
+      accessToken: streetView.mapillaryToken,
+      container: $('streetview-container'),
+      imageId,
+    });
+    notify('Mapillary ビューアを初期化しました。', 'success');
+  } catch (e) {
+    svPlaceholder('Mapillary の初期化に失敗しました。');
+    notify(e.message, 'error');
+  }
+}
+
+/** ストリートビューを選択中 overlay の Camera 位置へ移動する */
+async function moveStreetViewToCamera() {
+  const ov = getSelected();
+  if (!ov) { notify('先に PhotoOverlay を選択してください', 'warn'); return; }
+  const { latitude: lat, longitude: lng } = ov.camera;
+
+  if (streetView.provider === 'google') {
+    if (!streetView.googlePano) { await initGoogleStreetView(); return; }
+    streetView.googlePano.setPosition({ lat, lng });
+    streetView.googlePano.setPov({
+      heading: ov.camera.heading,
+      pitch: clamp(ov.camera.tilt - 90, -90, 90),
+    });
+  } else if (streetView.provider === 'mapillary') {
+    if (!streetView.mapillaryViewer) { await initMapillaryViewer(); return; }
+    try {
+      const imageId = await findMapillaryImageId(lng, lat);
+      if (!imageId) { notify('付近に Mapillary 画像がありません。', 'warn'); return; }
+      await streetView.mapillaryViewer.moveTo(imageId);
+    } catch (e) {
+      notify(e.message, 'error');
+    }
+  } else {
+    notify('ヘッダーの「ストリートビュー」からプロバイダを選択してください。', 'info');
+  }
+}
+
+/**
+ * ストリートビューの現在視点（位置・方位・傾き）を Camera へ反映する。
+ * 地上から見た正確な位置合わせに使う。
+ */
+async function applyStreetViewPose() {
+  const ov = getSelected();
+  if (!ov) { notify('先に PhotoOverlay を選択してください', 'warn'); return; }
+
+  try {
+    if (streetView.provider === 'google' && streetView.googlePano) {
+      const pos = streetView.googlePano.getPosition();
+      const pov = streetView.googlePano.getPov();
+      if (!pos) { notify('Street View の位置を取得できません。', 'warn'); return; }
+      ov.camera.latitude = pos.lat();
+      ov.camera.longitude = pos.lng();
+      ov.camera.heading = ((pov.heading % 360) + 360) % 360;
+      ov.camera.tilt = clamp(90 + pov.pitch, 0, 180); // pitch 0=水平 → tilt 90
+      ov.camera.altitude = 2.5; // 地上視点相当
+      ov.camera.altitudeMode = 'relativeToGround';
+    } else if (streetView.provider === 'mapillary' && streetView.mapillaryViewer) {
+      const pos = await streetView.mapillaryViewer.getPosition();
+      const pov = await streetView.mapillaryViewer.getPointOfView();
+      ov.camera.latitude = pos.lat;
+      ov.camera.longitude = pos.lng ?? pos.lon;
+      if (Number.isFinite(pov?.bearing)) {
+        ov.camera.heading = ((pov.bearing % 360) + 360) % 360;
+      }
+      if (Number.isFinite(pov?.tilt)) {
+        ov.camera.tilt = clamp(90 + pov.tilt, 0, 180);
+      }
+      ov.camera.altitude = 2.5;
+      ov.camera.altitudeMode = 'relativeToGround';
+    } else {
+      notify('ストリートビューが初期化されていません。', 'warn');
+      return;
+    }
+    updateFormFromModel();
+    afterModelChange();
+    notify('ストリートビューの視点を Camera に反映しました。', 'success');
+  } catch (e) {
+    notify(`視点の取得に失敗しました: ${e.message}`, 'error');
+  }
+}
+
+/** ストリートビュー関連 UI のイベントを設定する */
+function setupStreetViewEvents() {
+  $('google-api-key').value = streetView.googleKey;
+  $('mapillary-token').value = streetView.mapillaryToken;
+
+  $('sv-provider').addEventListener('change', (e) => setStreetViewProvider(e.target.value));
+
+  $('google-key-apply').addEventListener('click', () => {
+    streetView.googleKey = $('google-api-key').value.trim();
+    localStorage.setItem('poc-google-api-key', streetView.googleKey);
+    if (streetView.googleKey) initGoogleStreetView();
+    else svPlaceholder('API キーを入力してください。');
+  });
+
+  $('google-open-external').addEventListener('click', () => {
+    const ov = getSelected();
+    const lat = ov?.camera.latitude ?? mapW.getCamera().lat;
+    const lng = ov?.camera.longitude ?? mapW.getCamera().lng;
+    const heading = ov?.camera.heading ?? 0;
+    const pitch = ov ? clamp(ov.camera.tilt - 90, -90, 90) : 0;
+    const url = 'https://www.google.com/maps/@?api=1&map_action=pano' +
+      `&viewpoint=${lat},${lng}&heading=${heading.toFixed(1)}&pitch=${pitch.toFixed(1)}`;
+    window.open(url, '_blank', 'noopener');
+  });
+
+  $('mapillary-token-apply').addEventListener('click', () => {
+    streetView.mapillaryToken = $('mapillary-token').value.trim();
+    localStorage.setItem('poc-mapillary-token', streetView.mapillaryToken);
+    destroyStreetViewers();
+    if (streetView.mapillaryToken) initMapillaryViewer();
+    else svPlaceholder('アクセストークンを入力してください。');
+  });
+
+  $('sv-goto-camera').addEventListener('click', moveStreetViewToCamera);
+  $('sv-apply-pose').addEventListener('click', applyStreetViewPose);
 }
 
 /* =============================================================================
@@ -2225,6 +2653,8 @@ function init() {
   setupIoEvents();
   setupFormEvents();
   setupMapCameraSync();
+  initMiniMap();
+  setupStreetViewEvents();
   renderOverlayList();
   updateFormFromModel();
 }
