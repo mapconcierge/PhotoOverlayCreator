@@ -1029,13 +1029,28 @@ function miniFrustumFC(ov) {
   };
 }
 
-/** ミニ地図を初期化する（航空写真ベース・回転なしの直下視固定） */
+// ミニ地図の背景: OSM 標準レイヤ（OSM Carto）
+const MINI_MAP_STYLE = {
+  version: 8,
+  sources: {
+    'osm-carto': {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    },
+  },
+  layers: [{ id: 'osm-carto', type: 'raster', source: 'osm-carto' }],
+};
+
+/** ミニ地図を初期化する（OSM 標準レイヤ・回転なしの直下視固定） */
 function initMiniMap() {
   if (!MapWrapper.isWebGLSupported()) return;
   try {
     miniMap = new maplibregl.Map({
       container: 'mini-map',
-      style: buildRasterStyle(BASEMAPS.esri),
+      style: MINI_MAP_STYLE,
       center: [DEFAULT_CENTER.lng, DEFAULT_CENTER.lat],
       zoom: 14,
       pitch: 0,

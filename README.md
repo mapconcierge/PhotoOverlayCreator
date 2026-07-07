@@ -105,6 +105,7 @@ PhotoOverlay の Camera に反映できます（高度は地上 2.5m / relativeT
 | ベクトル地図 | [OpenFreeMap](https://openfreemap.org/)（Liberty スタイル） | キー不要 |
 | 航空写真 | Esri World Imagery | ArcGIS Online タイルサービス |
 | 空中写真（日本） | 国土地理院 全国最新写真（シームレス） | 地理院タイル |
+| ミニ地図（直下視） | [OpenStreetMap](https://www.openstreetmap.org/) 標準レイヤ（OSM Carto） | [タイル利用ポリシー](https://operations.osmfoundation.org/policies/tiles/)に従うこと |
 | 地形 DEM | [Terrain Tiles on AWS](https://registry.opendata.aws/terrain-tiles/)（Terrarium 形式） | Mapterhorn Terrain 互換の raster-dem。キー不要・CORS 対応 |
 
 ## KML / KMZ 出力仕様
