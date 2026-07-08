@@ -1784,7 +1784,8 @@ function renderOverlayList() {
       if (ov.id === state.selectedId) updateFormFromModel();
     });
     visLabel.appendChild(vis);
-    visLabel.appendChild(document.createTextNode(t('list.visible')));
+    visLabel.appendChild(document.createTextNode('👁'));
+    visLabel.title = t('list.visibleTitle');
     meta.appendChild(visLabel);
 
     const actions = document.createElement('span');
@@ -1801,8 +1802,8 @@ function renderOverlayList() {
     };
     mkBtn('↑', t('btn.moveUp'), () => moveOverlay(idx, -1));
     mkBtn('↓', t('btn.moveDown'), () => moveOverlay(idx, +1));
-    mkBtn(t('btn.duplicate'), t('btn.duplicate'), () => duplicateOverlay(ov.id));
-    mkBtn(t('btn.delete'), t('btn.delete'), () => deleteOverlay(ov.id), 'delete-btn');
+    mkBtn('⧉', t('btn.duplicate'), () => duplicateOverlay(ov.id));
+    mkBtn('🗑', t('btn.delete'), () => deleteOverlay(ov.id), 'delete-btn');
     meta.appendChild(actions);
 
     li.appendChild(meta);
