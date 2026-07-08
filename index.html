@@ -29,7 +29,7 @@
     <h1 id="app-title" data-i18n="app.title">PhotoOverlay Creator</h1>
 
     <div class="header-group">
-      <label for="basemap-select" data-i18n="basemap.label">Basemap</label>
+      <label for="basemap-select" data-i18n-title="basemap.label" title="Basemap">🗺️</label>
       <select id="basemap-select" data-i18n-title="basemap.title" title="Switch the background layer">
         <option value="openfreemap" selected data-i18n="basemap.openfreemap">OpenFreeMap Vector</option>
         <option value="esri" data-i18n="basemap.esri">Esri World Imagery</option>
@@ -39,34 +39,35 @@
     </div>
 
     <div class="header-group">
-      <label for="terrain-toggle">
-        <input type="checkbox" id="terrain-toggle" checked> <span data-i18n="header.terrain">3D Terrain</span>
+      <label for="terrain-toggle" data-i18n-title="header.terrain" title="3D Terrain">
+        <input type="checkbox" id="terrain-toggle" checked> ⛰️
       </label>
-      <label for="terrain-exaggeration" data-i18n="header.exaggeration">Exagg.</label>
+      <label for="terrain-exaggeration" data-i18n-title="header.exaggerationTitle"
+             title="Terrain exaggeration">↕️</label>
       <input type="range" id="terrain-exaggeration" min="0" max="3" step="0.1" value="1"
              data-i18n-title="header.exaggerationTitle" title="Terrain exaggeration">
       <output id="terrain-exaggeration-value" for="terrain-exaggeration">1.0</output>
     </div>
 
     <div class="header-group">
-      <label for="hillshade-toggle">
-        <input type="checkbox" id="hillshade-toggle"> <span data-i18n="header.hillshade">Hillshade</span>
+      <label for="hillshade-toggle" data-i18n-title="header.hillshade" title="Hillshade">
+        <input type="checkbox" id="hillshade-toggle"> 🌄
       </label>
-      <label for="buildings-toggle">
-        <input type="checkbox" id="buildings-toggle" checked> <span data-i18n="header.buildings">3D Buildings</span>
+      <label for="buildings-toggle" data-i18n-title="header.buildings" title="3D Buildings">
+        <input type="checkbox" id="buildings-toggle" checked> 🏢
       </label>
       <label for="sync-toggle" data-i18n-title="header.cameraSyncTitle"
              title="Two-way sync between map view and the selected PhotoOverlay Camera">
-        <input type="checkbox" id="sync-toggle"> <span data-i18n="header.cameraSync">Camera sync</span>
+        <input type="checkbox" id="sync-toggle"> 🔄📷
       </label>
       <label for="click-point-toggle" data-i18n-title="header.clickPointTitle"
              title="When ON, clicking the map sets the Point position">
-        <input type="checkbox" id="click-point-toggle"> <span data-i18n="header.clickPoint">Click to set Point</span>
+        <input type="checkbox" id="click-point-toggle"> 👆📍
       </label>
     </div>
 
     <div class="header-group">
-      <label for="sv-provider" data-i18n="header.streetview">Street view</label>
+      <label for="sv-provider" data-i18n-title="header.streetview" title="Street view">🚶</label>
       <select id="sv-provider" data-i18n-title="header.streetviewTitle"
               title="Toggle the ground-level street view panel">
         <option value="none" selected data-i18n="sv.none">None</option>
@@ -95,17 +96,18 @@
       <section class="pane-section">
         <h2 data-i18n="left.dataLoad">Load Data</h2>
         <div class="button-row">
-          <button id="load-image-btn" type="button" data-i18n="btn.loadImage"
+          <button id="load-image-btn" type="button"
                   data-i18n-title="btn.loadImageTitle"
-                  title="Load an image file and create a new PhotoOverlay">Load Image</button>
-          <button id="load-kmz-btn" type="button" data-i18n="btn.loadKmz"
+                  title="Load an image file and create a new PhotoOverlay">📂🖼️</button>
+          <button id="load-kmz-btn" type="button"
                   data-i18n-title="btn.loadKmzTitle"
-                  title="Load a KMZ file and restore its PhotoOverlays">Load KMZ</button>
+                  title="Load a KMZ file and restore its PhotoOverlays">📂📦</button>
         </div>
         <input type="file" id="image-file-input" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.tif,.tiff,image/*" hidden aria-label="Image file selection">
         <input type="file" id="kmz-file-input" accept=".kmz,.kml" hidden aria-label="KMZ/KML file selection">
         <div class="field-row">
-          <label for="pano-tolerance" data-i18n="left.panoTolerance">360° detection tolerance</label>
+          <label for="pano-tolerance" data-i18n-title="left.panoToleranceTitle"
+                 title="Detected as equirectangular when width ÷ height is 2.0 ± this value">360°±</label>
           <input type="number" id="pano-tolerance" min="0" max="0.5" step="0.01" value="0.02"
                  data-i18n-title="left.panoToleranceTitle"
                  title="Detected as equirectangular when width ÷ height is 2.0 ± this value">
@@ -119,16 +121,16 @@
           <p id="image-preview-empty" data-i18n="left.noImage">No image loaded</p>
         </div>
         <dl id="image-info">
-          <dt data-i18n="info.filename">File name</dt><dd id="info-filename">—</dd>
-          <dt data-i18n="info.size">Size</dt><dd id="info-size">—</dd>
-          <dt data-i18n="info.type">Format</dt><dd id="info-type">—</dd>
-          <dt data-i18n="info.gps">Exif GPS</dt><dd id="info-gps">—</dd>
-          <dt data-i18n="info.pano">360° detection</dt><dd id="info-pano">—</dd>
+          <dt data-i18n-title="info.filename" title="File name">📄</dt><dd id="info-filename">—</dd>
+          <dt data-i18n-title="info.size" title="Size">📐</dt><dd id="info-size">—</dd>
+          <dt data-i18n-title="info.type" title="Format">🧩</dt><dd id="info-type">—</dd>
+          <dt data-i18n-title="info.gps" title="Exif GPS">📍</dt><dd id="info-gps">—</dd>
+          <dt data-i18n-title="info.pano" title="360° detection">🔄</dt><dd id="info-pano">—</dd>
         </dl>
-        <h3 class="mini-map-title" data-i18n="left.miniMap">Mini map (top-down)</h3>
         <div id="mini-map" role="application" data-i18n-aria="left.miniMapAria"
+             data-i18n-title="left.miniMapHint"
+             title="Drag 📷 Camera / 🖼 Point to move them. The blue fan shows the FOV."
              aria-label="Top-down mini map of the selected PhotoOverlay. Drag the camera and placement markers to move them."></div>
-        <p class="hint" data-i18n="left.miniMapHint">Drag 📷 Camera / 🖼 Point to move them. The blue fan shows the FOV.</p>
       </section>
 
       <section class="pane-section" id="overlay-list-section">
@@ -142,40 +144,42 @@
     <section id="center-pane" aria-label="3D map">
       <div id="map" role="application" aria-label="MapLibre 3D map"></div>
       <div id="map-status" aria-live="polite"></div>
-      <button id="photo-view-btn" type="button" data-i18n="btn.photoView"
+      <button id="photo-view-btn" type="button"
               data-i18n-title="btn.photoViewTitle"
-              title="Jump to the camera viewpoint of the selected PhotoOverlay and center the photo on screen">📷 Photo view</button>
+              title="Jump to the camera viewpoint of the selected PhotoOverlay and center the photo on screen">📷👁️</button>
 
       <!-- ストリートビューパネル（プロバイダ選択時のみ表示） -->
       <section id="streetview-panel" hidden aria-label="Street view">
         <div class="sv-toolbar">
           <div id="sv-google-config" class="sv-config" hidden>
-            <label for="google-api-key" data-i18n="sv.googleKey">Google Maps API key</label>
+            <label for="google-api-key" data-i18n-title="sv.googleKey"
+                   title="Google Maps API key">🔑</label>
             <input type="password" id="google-api-key" placeholder="Enter API key"
                    data-i18n-placeholder="sv.googleKeyPlaceholder"
                    autocomplete="off" data-i18n-aria="sv.googleKey" aria-label="Google Maps API key">
-            <button id="google-key-apply" type="button" data-i18n="sv.apply"
+            <button id="google-key-apply" type="button"
                     data-i18n-title="sv.googleApplyTitle"
-                    title="Save the API key and initialize Street View">Apply</button>
-            <button id="google-open-external" type="button" data-i18n="sv.openGoogle"
+                    title="Save the API key and initialize Street View">✔️</button>
+            <button id="google-open-external" type="button"
                     data-i18n-title="sv.openGoogleTitle"
-                    title="No key needed. Opens Street View at the Camera position in a new tab">Open in Google Maps</button>
+                    title="No key needed. Opens Street View at the Camera position in a new tab">Google ↗</button>
           </div>
           <div id="sv-mapillary-config" class="sv-config" hidden>
-            <label for="mapillary-token" data-i18n="sv.mapillaryToken">Mapillary token</label>
+            <label for="mapillary-token" data-i18n-title="sv.mapillaryToken"
+                   title="Mapillary token">🔑</label>
             <input type="password" id="mapillary-token" placeholder="MLY|..."
                    autocomplete="off" data-i18n-aria="sv.mapillaryToken" aria-label="Mapillary access token">
-            <button id="mapillary-token-apply" type="button" data-i18n="sv.apply"
+            <button id="mapillary-token-apply" type="button"
                     data-i18n-title="sv.mapillaryApplyTitle"
-                    title="Save the access token and initialize Mapillary">Apply</button>
+                    title="Save the access token and initialize Mapillary">✔️</button>
           </div>
           <div class="sv-actions">
-            <button id="sv-goto-camera" type="button" data-i18n="sv.gotoCamera"
+            <button id="sv-goto-camera" type="button"
                     data-i18n-title="sv.gotoCameraTitle"
-                    title="Move the street view to the Camera position of the selected PhotoOverlay">Go to Camera position</button>
-            <button id="sv-apply-pose" type="button" data-i18n="sv.applyPose"
+                    title="Move the street view to the Camera position of the selected PhotoOverlay">🧭📷</button>
+            <button id="sv-apply-pose" type="button"
                     data-i18n-title="sv.applyPoseTitle"
-                    title="Write the current street view position/heading/tilt back to the Camera">Apply view to Camera</button>
+                    title="Write the current street view position/heading/tilt back to the Camera">✅📷</button>
           </div>
         </div>
         <div id="streetview-container"></div>
@@ -189,54 +193,58 @@
 
         <!-- Overlay -->
         <section class="pane-section">
-          <h2 data-i18n="ov.section">Overlay</h2>
+          <h2>Overlay</h2>
           <div class="field-row">
-            <label for="ov-name" data-i18n="ov.name">Name</label>
-            <input type="text" id="ov-name">
+            <label for="ov-name" data-i18n-title="ov.name" title="Name">🏷️</label>
+            <input type="text" id="ov-name" data-i18n-aria="ov.name" aria-label="Name">
           </div>
           <div class="field-row">
-            <label for="ov-desc" data-i18n="ov.desc">Description</label>
-            <textarea id="ov-desc" rows="2"></textarea>
+            <label for="ov-desc" data-i18n-title="ov.desc" title="Description">📝</label>
+            <textarea id="ov-desc" rows="2" data-i18n-aria="ov.desc" aria-label="Description"></textarea>
           </div>
           <div class="field-row">
-            <label for="ov-shape" data-i18n="ov.shape">Shape</label>
+            <label for="ov-shape">Shape</label>
             <select id="ov-shape">
               <option value="rectangle" data-i18n="shape.rectangle">rectangle</option>
               <option value="sphere" data-i18n="shape.sphere">sphere (spherical panorama)</option>
             </select>
           </div>
           <div class="field-row">
-            <label for="ov-opacity" data-i18n="ov.opacity">Opacity</label>
-            <input type="range" id="ov-opacity" min="0" max="1" step="0.01" value="1">
+            <label for="ov-opacity" data-i18n-title="ov.opacity" title="Opacity">💧</label>
+            <input type="range" id="ov-opacity" min="0" max="1" step="0.01" value="1"
+                   data-i18n-aria="ov.opacity" aria-label="Opacity">
             <output id="ov-opacity-value" for="ov-opacity">1.00</output>
           </div>
           <div class="field-row">
-            <label for="ov-visible"><input type="checkbox" id="ov-visible" checked> <span data-i18n="ov.visible">Visible</span></label>
+            <label for="ov-visible" data-i18n-title="ov.visible" title="Visible">
+              <input type="checkbox" id="ov-visible" checked> 👁️
+            </label>
           </div>
           <div class="field-row">
-            <label for="ov-href" data-i18n="ov.href">Icon href file name</label>
-            <input type="text" id="ov-href" data-i18n-title="ov.hrefTitle" title="Relative image path inside the KMZ">
+            <label for="ov-href" data-i18n-title="ov.href" title="Icon href file name">🔗</label>
+            <input type="text" id="ov-href" data-i18n-title="ov.hrefTitle" title="Relative image path inside the KMZ"
+                   data-i18n-aria="ov.href" aria-label="Icon href file name">
           </div>
           <div class="button-row">
-            <button id="replace-image-btn" type="button" data-i18n="btn.replaceImage"
+            <button id="replace-image-btn" type="button"
                     data-i18n-title="btn.replaceImageTitle"
-                    title="Replace the image of the selected PhotoOverlay with another file">Replace Image</button>
+                    title="Replace the image of the selected PhotoOverlay with another file">🔁🖼️</button>
           </div>
         </section>
 
         <!-- Camera -->
         <section class="pane-section">
-          <h2 data-i18n="cam.section">Camera (position &amp; orientation)</h2>
+          <h2 data-i18n-title="cam.section" title="Camera (position &amp; orientation)">📷 Camera</h2>
           <div class="field-row">
-            <label for="cam-lat" data-i18n="field.lat">Latitude</label>
+            <label for="cam-lat" data-i18n-title="field.lat" title="Latitude">Lat</label>
             <input type="number" id="cam-lat" step="0.000001">
           </div>
           <div class="field-row">
-            <label for="cam-lng" data-i18n="field.lng">Longitude</label>
+            <label for="cam-lng" data-i18n-title="field.lng" title="Longitude">Lon</label>
             <input type="number" id="cam-lng" step="0.000001">
           </div>
           <div class="field-row">
-            <label for="cam-alt" data-i18n="field.alt">Altitude (m)</label>
+            <label for="cam-alt" data-i18n-title="field.alt" title="Altitude (m)">Alt (m)</label>
             <input type="number" id="cam-alt" step="0.1">
             <select id="cam-altmode" aria-label="Camera altitudeMode">
               <option value="absolute">absolute</option>
@@ -255,26 +263,26 @@
             <input type="range" id="cam-tilt-slider" min="0" max="180" step="0.1" aria-label="Tilt slider">
           </div>
           <div class="field-row slider-row">
-            <label for="cam-roll">Roll</label>
+            <label for="cam-roll" data-i18n-title="cam.rollNote"
+                   title="* Roll is preserved in the KML output (it may not be reflected on the map depending on the MapLibre version).">Roll</label>
             <input type="number" id="cam-roll" min="-180" max="180" step="0.01">
             <input type="range" id="cam-roll-slider" min="-180" max="180" step="0.1" aria-label="Roll slider">
           </div>
-          <p class="hint" data-i18n="cam.rollNote">* Roll is preserved in the KML output (it may not be reflected on the map depending on the MapLibre version).</p>
         </section>
 
         <!-- Point -->
         <section class="pane-section">
-          <h2 data-i18n="pt.section">Point (overlay placement)</h2>
+          <h2 data-i18n-title="pt.section" title="Point (overlay placement)">📍 Point</h2>
           <div class="field-row">
-            <label for="pt-lat" data-i18n="field.lat">Latitude</label>
+            <label for="pt-lat" data-i18n-title="field.lat" title="Latitude">Lat</label>
             <input type="number" id="pt-lat" step="0.000001">
           </div>
           <div class="field-row">
-            <label for="pt-lng" data-i18n="field.lng">Longitude</label>
+            <label for="pt-lng" data-i18n-title="field.lng" title="Longitude">Lon</label>
             <input type="number" id="pt-lng" step="0.000001">
           </div>
           <div class="field-row">
-            <label for="pt-alt" data-i18n="field.alt">Altitude (m)</label>
+            <label for="pt-alt" data-i18n-title="field.alt" title="Altitude (m)">Alt (m)</label>
             <input type="number" id="pt-alt" step="0.1">
             <select id="pt-altmode" aria-label="Point altitudeMode">
               <option value="absolute">absolute</option>
@@ -283,34 +291,37 @@
             </select>
           </div>
           <div class="button-row">
-            <button id="point-from-camera-btn" type="button" data-i18n="btn.pointForward"
+            <button id="point-from-camera-btn" type="button"
                     data-i18n-title="btn.pointForwardTitle"
-                    title="Place the Point at near×2 along the camera view direction">Place Point ahead of camera</button>
+                    title="Place the Point at near×2 along the camera view direction">📷➡️📍</button>
           </div>
         </section>
 
         <!-- ViewVolume -->
         <section class="pane-section">
-          <h2 data-i18n="vv.section">ViewVolume (field of view)</h2>
+          <h2 data-i18n-title="vv.section" title="ViewVolume (field of view)">👁️ ViewVolume</h2>
           <div class="field-row slider-row">
-            <label for="fov-h">Horizontal FOV</label>
+            <label for="fov-h" title="Horizontal FOV">H FOV</label>
             <input type="number" id="fov-h" min="0.1" max="179" step="0.01">
             <input type="range" id="fov-h-slider" min="1" max="179" step="0.1" aria-label="Horizontal FOV slider">
           </div>
           <div class="field-row slider-row">
-            <label for="fov-v">Vertical FOV</label>
+            <label for="fov-v" title="Vertical FOV">V FOV</label>
             <input type="number" id="fov-v" min="0.1" max="179" step="0.01">
             <input type="range" id="fov-v-slider" min="1" max="179" step="0.1" aria-label="Vertical FOV slider">
           </div>
           <div class="field-row">
-            <label for="fov-lock"><input type="checkbox" id="fov-lock" checked> <span data-i18n="vv.lock">Lock aspect ratio</span></label>
+            <label for="fov-lock" data-i18n-title="vv.lock" title="Lock aspect ratio">
+              <input type="checkbox" id="fov-lock" checked> 🔒📐
+            </label>
           </div>
           <div class="field-row">
-            <label for="fov-near" data-i18n="vv.near">Near (m)</label>
+            <label for="fov-near">Near (m)</label>
             <input type="number" id="fov-near" min="0" step="0.1">
           </div>
           <details id="fov-advanced">
-            <summary data-i18n="vv.advanced">Advanced (left / right / top / bottom FOV)</summary>
+            <summary data-i18n-title="vv.advanced"
+                     title="Advanced (left / right / top / bottom FOV)">⚙️ FOV±</summary>
             <div class="field-row">
               <label for="fov-left">leftFov</label>
               <input type="number" id="fov-left" min="-179" max="0" step="0.01">
@@ -333,25 +344,24 @@
 
       <!-- Export -->
       <section class="pane-section" id="export-section">
-        <h2 data-i18n="export.section">Export</h2>
+        <h2 data-i18n-title="export.section" title="Export">📤 Export</h2>
         <div class="button-col">
-          <button id="export-kml-btn" type="button" data-i18n="btn.exportKml"
+          <button id="export-kml-btn" type="button"
                   data-i18n-title="btn.exportKmlTitle"
-                  title="Download a KML containing all PhotoOverlays">Download KML</button>
-          <button id="export-kmz-btn" type="button" data-i18n="btn.exportKmz"
+                  title="Download a KML containing all PhotoOverlays">⬇️ KML</button>
+          <button id="export-kmz-btn" type="button"
                   data-i18n-title="btn.exportKmzTitle"
-                  title="Download a KMZ with the images bundled">Download KMZ</button>
-          <button id="export-jpeg-btn" type="button" data-i18n="btn.exportJpeg"
+                  title="Download a KMZ with the images bundled">⬇️ KMZ</button>
+          <button id="export-jpeg-btn" type="button"
                   data-i18n-title="title.exifWritable"
-                  title="Write GPS Exif (camera position) into the selected JPEG and download it">JPEG with GPS Exif</button>
-          <button id="export-json-btn" type="button" data-i18n="btn.exportJson"
-                  title="Save the current settings as JSON">Save settings as JSON</button>
-          <button id="import-json-btn" type="button" data-i18n="btn.importJson"
+                  title="Write GPS Exif (camera position) into the selected JPEG and download it">⬇️ JPEG 📍</button>
+          <button id="export-json-btn" type="button" data-i18n-title="btn.exportJson"
+                  title="Save the current settings as JSON">💾 JSON</button>
+          <button id="import-json-btn" type="button"
                   data-i18n-title="btn.importJsonTitle"
-                  title="Load JSON settings (images must be reloaded)">Load JSON settings</button>
+                  title="Load JSON settings (images must be reloaded)">📂 JSON</button>
           <input type="file" id="json-file-input" accept=".json,application/json" hidden aria-label="JSON settings file selection">
         </div>
-        <p class="hint" id="exif-support-note" data-i18n="export.exifNote">GPS Exif writing officially supports JPEG only. PNG / WebP / HEIF / TIFF can be loaded and exported to KML / KMZ, but Exif writing is not supported.</p>
       </section>
     </aside>
   </main>
