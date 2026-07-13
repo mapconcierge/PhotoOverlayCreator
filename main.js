@@ -2556,7 +2556,11 @@ async function importJson(file) {
     }
     clearAllOverlays();
     for (const o of data.overlays) {
-      state.overlays.push(createOverlayModel({ ...o, id: undefined, imageFile: null, imageUrl: '' }));
+      // id はキーごと除去して createOverlayModel に UUID を再生成させる。
+      // `id: undefined` のままだとスプレッドで生成済み UUID を上書きし、
+      // 全オーバーレイが id undefined で衝突する。
+      const { id: _discarded, ...rest } = o;
+      state.overlays.push(createOverlayModel({ ...rest, imageFile: null, imageUrl: '' }));
     }
     state.overlayCounter = state.overlays.length;
     if (state.overlays.length) selectOverlay(state.overlays[0].id);
