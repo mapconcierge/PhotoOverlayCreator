@@ -204,7 +204,7 @@ class MapWrapper {
   /** 地図を初期化する。WebGL 非対応なら例外を投げる。 */
   init(styleSpec, center, zoom) {
     if (!MapWrapper.isWebGLSupported()) {
-      throw new Error(t('msg.webglUnsupported'));
+      throw new Error('このブラウザは WebGL に対応していないため、3D地図を表示できません。');
     }
     this._map = new maplibregl.Map({
       container: this._containerId,
@@ -229,7 +229,7 @@ class MapWrapper {
       lastTileErrorAt = now;
       const msg = e?.error?.message || '';
       if (/tile|source|fetch|load/i.test(msg)) {
-        notify(t('msg.tileLoadFailed', { msg }), 'warn');
+        notify(`地図タイルの読み込みに失敗しました（CORS・ネットワーク制約の可能性）: ${msg}`, 'warn');
       }
     });
     return this;
@@ -524,8 +524,8 @@ function setBasemap(key) {
     rebuildCustomLayers();
     const bTgl = document.getElementById('buildings-toggle');
     bTgl.disabled = !def.vector;
-    bTgl.title = def.vector ? '' : t('title.buildingsVectorOnly');
-    if (!def.vector) notify(t('msg.noBuildingsRaster'), 'info');
+    bTgl.title = def.vector ? '' : '3D建物はベクトル地図（OpenFreeMap）選択時のみ利用できます';
+    if (!def.vector) notify('このベースマップでは 3D 建物を表示できません（ベクトルタイル非搭載）', 'info');
   });
 }
 
@@ -578,7 +578,9 @@ function upsertOverlayMarkers(ov) {
     const el = document.createElement('div');
     el.className = 'marker-camera';
     el.textContent = '📷';
+    el.title = `Camera: ${ov.name}（ドラッグでカメラ位置を移動）`;
     el.setAttribute('role', 'button');
+    el.setAttribute('aria-label', `${ov.name} のカメラ位置マーカー`);
     el.addEventListener('click', (e) => { e.stopPropagation(); selectOverlay(ov.id); });
     mapW.addMarker(camId, [ov.camera.longitude, ov.camera.latitude], el, {
       draggable: true,
@@ -596,8 +598,6 @@ function upsertOverlayMarkers(ov) {
   const camEl = mapW._markers.get(camId).getElement();
   camEl.className = `marker-camera${dimClass}`;
   camEl.style.outline = isSelected ? '2px solid #fff' : 'none';
-  camEl.title = t('marker.camera', { name: ov.name });
-  camEl.setAttribute('aria-label', t('marker.cameraAria', { name: ov.name }));
 
   // Point マーカー（🖼 / 🌐）
   if (!mapW._markers.has(ptId)) {
@@ -621,9 +621,9 @@ function upsertOverlayMarkers(ov) {
   const ptEl = mapW._markers.get(ptId).getElement();
   ptEl.className = `marker-point${ov.shape === 'sphere' ? ' sphere' : ''}${dimClass}`;
   ptEl.textContent = ov.shape === 'sphere' ? '🌐' : '🖼';
-  ptEl.title = t('marker.point', { name: ov.name }) +
-    (ov.shape === 'sphere' ? t('marker.sphereSuffix') : '');
-  ptEl.setAttribute('aria-label', t('marker.pointAria', { name: ov.name }));
+  ptEl.title = `Point: ${ov.name}（ドラッグで配置位置を移動）` +
+    (ov.shape === 'sphere' ? ' / 球面パノラマ' : '');
+  ptEl.setAttribute('aria-label', `${ov.name} の配置位置マーカー`);
 }
 
 /**
@@ -1111,8 +1111,8 @@ function updateMiniMap() {
     const el = document.createElement('div');
     el.className = 'marker-camera mini';
     el.textContent = '📷';
-    el.title = t('mini.camera');
-    el.setAttribute('aria-label', t('mini.cameraAria'));
+    el.title = 'Camera（ドラッグで移動）';
+    el.setAttribute('aria-label', 'ミニ地図のカメラ位置マーカー');
     miniMarkers.cam = new maplibregl.Marker({ element: el, draggable: true })
       .setLngLat([ov.camera.longitude, ov.camera.latitude])
       .addTo(miniMap);
@@ -1134,8 +1134,8 @@ function updateMiniMap() {
   if (!miniMarkers.pt) {
     const el = document.createElement('div');
     el.className = 'marker-point mini';
-    el.title = t('mini.point');
-    el.setAttribute('aria-label', t('mini.pointAria'));
+    el.title = 'Point（ドラッグで移動）';
+    el.setAttribute('aria-label', 'ミニ地図の配置位置マーカー');
     miniMarkers.pt = new maplibregl.Marker({ element: el, draggable: true })
       .setLngLat([ov.point.longitude, ov.point.latitude])
       .addTo(miniMap);
@@ -1215,13 +1215,17 @@ function setStreetViewProvider(provider) {
     if (streetView.googleKey) {
       initGoogleStreetView();
     } else {
-      svPlaceholder(t('ph.googleKey'));
+      svPlaceholder('Google Street View の表示には Google Maps JavaScript API キーが必要です。<br>' +
+        '上の欄にキーを入力して「適用」を押してください。<br>' +
+        'キーなしの場合は「Googleマップで開く」で新しいタブに表示できます。');
     }
   } else if (provider === 'mapillary') {
     if (streetView.mapillaryToken) {
       initMapillaryViewer();
     } else {
-      svPlaceholder(t('ph.mapillaryToken'));
+      svPlaceholder('Mapillary の表示にはアクセストークン（無料）が必要です。<br>' +
+        '<a href="https://www.mapillary.com/dashboard/developers" target="_blank" rel="noopener">Mapillary Developers</a> ' +
+        'でクライアントトークンを取得し、上の欄に入力して「適用」を押してください。');
     }
   }
 }
@@ -1237,7 +1241,7 @@ function loadGoogleMapsApi(key) {
       encodeURIComponent(key) + '&v=weekly&loading=async&callback=__pocGmapsReady';
     s.onerror = () => {
       streetView.googleLoading = null;
-      reject(new Error(t('msg.googleLoadFailed')));
+      reject(new Error('Google Maps API の読み込みに失敗しました（キー・ネットワークを確認）'));
     };
     document.head.appendChild(s);
   });
@@ -1250,7 +1254,7 @@ async function initGoogleStreetView() {
   const lat = ov?.camera.latitude ?? mapW.getCamera().lat;
   const lng = ov?.camera.longitude ?? mapW.getCamera().lng;
   try {
-    svPlaceholder(t('ph.googleLoading'));
+    svPlaceholder('Google Street View を読み込み中…');
     await loadGoogleMapsApi(streetView.googleKey);
     $('streetview-container').innerHTML = '';
     streetView.googlePano = new google.maps.StreetViewPanorama(
@@ -1264,9 +1268,9 @@ async function initGoogleStreetView() {
         motionTracking: false,
         fullscreenControl: false,
       });
-    notify(t('msg.googleInit'), 'success');
+    notify('Google Street View を初期化しました。', 'success');
   } catch (e) {
-    svPlaceholder(t('ph.googleFailed'));
+    svPlaceholder('Google Street View の初期化に失敗しました。');
     notify(e.message, 'error');
   }
 }
@@ -1278,7 +1282,7 @@ async function findMapillaryImageId(lng, lat) {
     encodeURIComponent(streetView.mapillaryToken) +
     `&fields=id&bbox=${lng - d},${lat - d},${lng + d},${lat + d}&limit=1`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(t('msg.mapillaryApiError', { status: res.status }));
+  if (!res.ok) throw new Error(`Mapillary API エラー（HTTP ${res.status}。トークンを確認してください）`);
   const data = await res.json();
   return data.data?.[0]?.id || null;
 }
@@ -1286,18 +1290,19 @@ async function findMapillaryImageId(lng, lat) {
 /** Mapillary ビューアを初期化して Camera 位置付近を表示する */
 async function initMapillaryViewer() {
   if (typeof mapillary === 'undefined') {
-    svPlaceholder(t('ph.mapillaryLibFailed'));
+    svPlaceholder('Mapillary JS の読み込みに失敗しました（CDN・ネットワークを確認）。');
     return;
   }
   const ov = getSelected();
   const lat = ov?.camera.latitude ?? mapW.getCamera().lat;
   const lng = ov?.camera.longitude ?? mapW.getCamera().lng;
   try {
-    svPlaceholder(t('ph.mapillarySearching'));
+    svPlaceholder('Mapillary 画像を検索中…');
     const imageId = await findMapillaryImageId(lng, lat);
     if (!imageId) {
-      svPlaceholder(t('ph.noMapillary'));
-      notify(t('msg.mapillaryNoImages'), 'warn');
+      svPlaceholder('この付近に Mapillary 画像が見つかりませんでした。<br>' +
+        '「Camera位置へ」ボタンで別の場所を再検索できます。');
+      notify('付近に Mapillary 画像がありません（検索範囲 約±300m）。', 'warn');
       return;
     }
     $('streetview-container').innerHTML = '';
@@ -1306,9 +1311,9 @@ async function initMapillaryViewer() {
       container: $('streetview-container'),
       imageId,
     });
-    notify(t('msg.mapillaryInit'), 'success');
+    notify('Mapillary ビューアを初期化しました。', 'success');
   } catch (e) {
-    svPlaceholder(t('ph.mapillaryFailed'));
+    svPlaceholder('Mapillary の初期化に失敗しました。');
     notify(e.message, 'error');
   }
 }
@@ -1316,7 +1321,7 @@ async function initMapillaryViewer() {
 /** ストリートビューを選択中 overlay の Camera 位置へ移動する */
 async function moveStreetViewToCamera() {
   const ov = getSelected();
-  if (!ov) { notify(t('msg.selectOverlayFirst'), 'warn'); return; }
+  if (!ov) { notify('先に PhotoOverlay を選択してください', 'warn'); return; }
   const { latitude: lat, longitude: lng } = ov.camera;
 
   if (streetView.provider === 'google') {
@@ -1330,13 +1335,13 @@ async function moveStreetViewToCamera() {
     if (!streetView.mapillaryViewer) { await initMapillaryViewer(); return; }
     try {
       const imageId = await findMapillaryImageId(lng, lat);
-      if (!imageId) { notify(t('msg.mapillaryNoImages'), 'warn'); return; }
+      if (!imageId) { notify('付近に Mapillary 画像がありません。', 'warn'); return; }
       await streetView.mapillaryViewer.moveTo(imageId);
     } catch (e) {
       notify(e.message, 'error');
     }
   } else {
-    notify(t('msg.svSelectProvider'), 'info');
+    notify('ヘッダーの「ストリートビュー」からプロバイダを選択してください。', 'info');
   }
 }
 
@@ -1346,13 +1351,13 @@ async function moveStreetViewToCamera() {
  */
 async function applyStreetViewPose() {
   const ov = getSelected();
-  if (!ov) { notify(t('msg.selectOverlayFirst'), 'warn'); return; }
+  if (!ov) { notify('先に PhotoOverlay を選択してください', 'warn'); return; }
 
   try {
     if (streetView.provider === 'google' && streetView.googlePano) {
       const pos = streetView.googlePano.getPosition();
       const pov = streetView.googlePano.getPov();
-      if (!pos) { notify(t('msg.svPositionUnavailable'), 'warn'); return; }
+      if (!pos) { notify('Street View の位置を取得できません。', 'warn'); return; }
       ov.camera.latitude = pos.lat();
       ov.camera.longitude = pos.lng();
       ov.camera.heading = ((pov.heading % 360) + 360) % 360;
@@ -1373,14 +1378,14 @@ async function applyStreetViewPose() {
       ov.camera.altitude = 2.5;
       ov.camera.altitudeMode = 'relativeToGround';
     } else {
-      notify(t('msg.svNotInitialized'), 'warn');
+      notify('ストリートビューが初期化されていません。', 'warn');
       return;
     }
     updateFormFromModel();
     afterModelChange();
-    notify(t('msg.svPoseApplied'), 'success');
+    notify('ストリートビューの視点を Camera に反映しました。', 'success');
   } catch (e) {
-    notify(t('msg.svPoseFailed', { msg: e.message }), 'error');
+    notify(`視点の取得に失敗しました: ${e.message}`, 'error');
   }
 }
 
@@ -1395,7 +1400,7 @@ function setupStreetViewEvents() {
     streetView.googleKey = $('google-api-key').value.trim();
     localStorage.setItem('poc-google-api-key', streetView.googleKey);
     if (streetView.googleKey) initGoogleStreetView();
-    else svPlaceholder(t('ph.enterApiKey'));
+    else svPlaceholder('API キーを入力してください。');
   });
 
   $('google-open-external').addEventListener('click', () => {
@@ -1414,7 +1419,7 @@ function setupStreetViewEvents() {
     localStorage.setItem('poc-mapillary-token', streetView.mapillaryToken);
     destroyStreetViewers();
     if (streetView.mapillaryToken) initMapillaryViewer();
-    else svPlaceholder(t('ph.enterToken'));
+    else svPlaceholder('アクセストークンを入力してください。');
   });
 
   $('sv-goto-camera').addEventListener('click', moveStreetViewToCamera);
@@ -1502,7 +1507,7 @@ function updateImageInfoPanel(ov) {
     img.hidden = true;
     img.removeAttribute('src');
     empty.hidden = false;
-    empty.textContent = ov ? t('left.noImageJson') : t('left.noImage');
+    empty.textContent = ov ? '画像未読込（JSON 復元時は「画像を差し替え」で再設定）' : '画像未読込';
   }
   $('info-filename').textContent = ov?.imagePath ? ov.imagePath.split('/').pop() : '—';
   $('info-size').textContent = ov?.imageWidth
@@ -1510,9 +1515,9 @@ function updateImageInfoPanel(ov) {
       (ov.imageFile ? ` / ${humanSize(ov.imageFile.size)}` : '')
     : '—';
   $('info-type').textContent = ov?.imageType || '—';
-  $('info-gps').textContent = ov ? (ov._hasGps ? t('info.gpsYes') : t('info.gpsNo')) : '—';
+  $('info-gps').textContent = ov ? (ov._hasGps ? 'あり' : 'なし') : '—';
   $('info-pano').textContent = ov
-    ? (ov.isPanoCandidate ? t('info.panoCandidate') : t('info.normalImage'))
+    ? (ov.isPanoCandidate ? 'Equirectangular 候補 (≈2:1)' : '通常画像')
     : '—';
 }
 
@@ -1521,7 +1526,9 @@ function updateExifButtonState(ov) {
   const btn = $('export-jpeg-btn');
   const writable = !!ov?.imageFile && EXIF_WRITABLE_TYPES.includes(ov.imageType);
   btn.disabled = !writable;
-  btn.title = writable ? t('title.exifWritable') : t('title.exifNotWritable');
+  btn.title = writable
+    ? '選択中の JPEG に GPS Exif（カメラ位置）を書き込んでダウンロードします'
+    : 'GPS Exif 書き込みは JPEG のみ正式対応です（PNG / WebP / HEIF / TIFF は非対応）';
 }
 
 /** 縦横比固定時に hFov から vFov を算出する（tan ベース） */
@@ -1710,7 +1717,7 @@ function setupMapCameraSync() {
   mapW.on('click', (e) => {
     if (!$('click-point-toggle').checked) return;
     const ov = getSelected();
-    if (!ov) { notify(t('msg.selectOverlayFirst'), 'warn'); return; }
+    if (!ov) { notify('先に PhotoOverlay を選択してください', 'warn'); return; }
     ov.point.longitude = e.lngLat.lng;
     ov.point.latitude = e.lngLat.lat;
     updateFormFromModel();
@@ -1747,7 +1754,7 @@ function renderOverlayList() {
       const img = document.createElement('img');
       img.className = 'thumb';
       img.src = ov.imageUrl;
-      img.alt = t('list.thumbAlt', { name: ov.name });
+      img.alt = `${ov.name} のサムネイル`;
       li.appendChild(img);
     } else {
       const ph = document.createElement('div');
@@ -1775,8 +1782,8 @@ function renderOverlayList() {
     const vis = document.createElement('input');
     vis.type = 'checkbox';
     vis.checked = ov.visible;
-    vis.title = t('list.visibleTitle');
-    vis.setAttribute('aria-label', `${t('list.visibleTitle')} — ${ov.name}`);
+    vis.title = '表示/非表示';
+    vis.setAttribute('aria-label', `${ov.name} の表示切替`);
     vis.addEventListener('click', (e) => e.stopPropagation());
     vis.addEventListener('change', () => {
       ov.visible = vis.checked;
@@ -1784,8 +1791,7 @@ function renderOverlayList() {
       if (ov.id === state.selectedId) updateFormFromModel();
     });
     visLabel.appendChild(vis);
-    visLabel.appendChild(document.createTextNode('👁'));
-    visLabel.title = t('list.visibleTitle');
+    visLabel.appendChild(document.createTextNode('表示'));
     meta.appendChild(visLabel);
 
     const actions = document.createElement('span');
@@ -1795,15 +1801,15 @@ function renderOverlayList() {
       b.type = 'button';
       b.textContent = label;
       b.title = title;
-      b.setAttribute('aria-label', `${title} — ${ov.name}`);
+      b.setAttribute('aria-label', `${ov.name} を${title}`);
       if (cls) b.className = cls;
       b.addEventListener('click', (e) => { e.stopPropagation(); handler(); });
       actions.appendChild(b);
     };
-    mkBtn('↑', t('btn.moveUp'), () => moveOverlay(idx, -1));
-    mkBtn('↓', t('btn.moveDown'), () => moveOverlay(idx, +1));
-    mkBtn('⧉', t('btn.duplicate'), () => duplicateOverlay(ov.id));
-    mkBtn('🗑', t('btn.delete'), () => deleteOverlay(ov.id), 'delete-btn');
+    mkBtn('↑', '上へ移動', () => moveOverlay(idx, -1));
+    mkBtn('↓', '下へ移動', () => moveOverlay(idx, +1));
+    mkBtn('複製', '複製', () => duplicateOverlay(ov.id));
+    mkBtn('削除', '削除', () => deleteOverlay(ov.id), 'delete-btn');
     meta.appendChild(actions);
 
     li.appendChild(meta);
@@ -1833,20 +1839,20 @@ function duplicateOverlay(id) {
   const copy = createOverlayModel(JSON.parse(JSON.stringify({
     ...src, imageFile: undefined, imageUrl: undefined, id: undefined,
   })));
-  copy.name = src.name + t('name.copySuffix');
+  copy.name = `${src.name} (コピー)`;
   copy.imageFile = src.imageFile; // 同じ画像を共有
   copy.imageUrl = src.imageUrl;   // Blob URL も共有（解放時に参照カウント）
   copy._hasGps = src._hasGps;
   state.overlays.push(copy);
   selectOverlay(copy.id);
-  notify(t('msg.duplicated', { name: src.name }), 'success');
+  notify(`「${src.name}」を複製しました`, 'success');
 }
 
 function deleteOverlay(id) {
   const idx = state.overlays.findIndex((o) => o.id === id);
   if (idx < 0) return;
   const ov = state.overlays[idx];
-  if (!confirm(t('confirm.delete', { name: ov.name }))) return;
+  if (!confirm(`「${ov.name}」を削除しますか？`)) return;
 
   disposeBillboardTexture(ov.id);
   mapW.removeMarker(`cam-${ov.id}`);
@@ -1864,7 +1870,7 @@ function deleteOverlay(id) {
   renderOverlayList();
   updateFormFromModel();
   refreshMapVisuals();
-  notify(t('msg.deleted', { name: ov.name }), 'info');
+  notify(`「${ov.name}」を削除しました`, 'info');
 }
 
 /** 全 overlay を破棄する（KMZ 再読込時）。Blob URL も解放する。 */
@@ -1961,7 +1967,7 @@ async function handleImageFile(file) {
 
   const supported = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/tiff'];
   if (mime && !supported.includes(mime)) {
-    notify(t('msg.unsupportedFormat', { type: mime || file.name }), 'error');
+    notify(`非対応の画像形式です: ${mime || file.name}。JPEG / PNG / WebP / HEIF / TIFF を使用してください。`, 'error');
     return;
   }
 
@@ -1972,15 +1978,16 @@ async function handleImageFile(file) {
   } catch {
     URL.revokeObjectURL(url);
     if (/heic|heif|tiff?/.test(mime + file.name.toLowerCase())) {
-      notify(t('msg.decodeFailedHeif', { type: mime || 'HEIF/TIFF' }), 'error');
+      notify(`このブラウザは ${mime || 'HEIF/TIFF'} のデコードに対応していない可能性があります。` +
+        'JPEG または PNG に変換してから読み込んでください。', 'error');
     } else {
-      notify(t('msg.brokenImage'), 'error');
+      notify('画像ファイルが壊れているか、読み込めない形式です。別のファイルをお試しください。', 'error');
     }
     return;
   }
 
   if (dims.width * dims.height > MAX_SAFE_PIXELS) {
-    notify(t('msg.largeImage', { w: dims.width, h: dims.height }), 'warn');
+    notify(`非常に大きい画像です（${dims.width}×${dims.height}）。動作が遅くなる可能性があります。`, 'warn');
   }
 
   // Exif GPS 読込（JPEG 以外でも ExifReader が対応する範囲で試行）
@@ -2009,7 +2016,7 @@ async function handleImageFile(file) {
     });
     replaceTarget._hasGps = !!gps;
     disposeBillboardTexture(replaceTarget.id); // テクスチャを作り直す
-    notify(t('msg.imageReplaced', { name: file.name }), 'success');
+    notify(`画像を差し替えました: ${file.name}`, 'success');
     finalizeImageLoad(replaceTarget, gps);
     return;
   }
@@ -2048,10 +2055,7 @@ async function handleImageFile(file) {
 
   state.overlays.push(ov);
   selectOverlay(ov.id);
-  notify(t('msg.imageLoaded', {
-    name: file.name,
-    gps: gps ? t('msg.gpsFound') : t('msg.gpsNone'),
-  }), 'success');
+  notify(`画像を読み込みました: ${file.name}${gps ? '（GPS Exif あり）' : '（GPS Exif なし → 地図中心へ配置）'}`, 'success');
   finalizeImageLoad(ov, gps);
 }
 
@@ -2143,13 +2147,13 @@ ${items}
 /** KML ファイルをダウンロードする */
 function exportKml() {
   if (state.overlays.length === 0) {
-    notify(t('msg.nothingToExport'), 'warn');
+    notify('出力する PhotoOverlay がありません。先に画像を読み込んでください。', 'warn');
     return;
   }
   const kml = buildKmlDocument();
   downloadBlob(new Blob([kml], { type: 'application/vnd.google-earth.kml+xml' }),
     'photo-overlays.kml');
-  notify(t('msg.kmlDownloaded'), 'success');
+  notify('KML をダウンロードしました（画像は含まれません。KMZ 出力を推奨）', 'success');
 }
 
 /** MIME からファイル拡張子を得る */
@@ -2164,7 +2168,7 @@ function extFromType(type, fallbackName = '') {
 /** KMZ（doc.kml + images/）をダウンロードする */
 async function exportKmz() {
   if (state.overlays.length === 0) {
-    notify(t('msg.nothingToExport'), 'warn');
+    notify('出力する PhotoOverlay がありません。先に画像を読み込んでください。', 'warn');
     return;
   }
   try {
@@ -2180,7 +2184,7 @@ async function exportKmz() {
         try { blob = await (await fetch(ov.imageUrl)).blob(); } catch { blob = null; }
       }
       if (!blob) {
-        notify(t('msg.kmzNoImage', { name: ov.name }), 'warn');
+        notify(`「${ov.name}」には画像がないため、KMZ には href のみ記録されます。`, 'warn');
         hrefMap.set(ov.id, ov.imagePath || '');
         continue;
       }
@@ -2198,9 +2202,9 @@ async function exportKmz() {
       compression: 'DEFLATE',
     });
     downloadBlob(kmzBlob, 'photo-overlays.kmz');
-    notify(t('msg.kmzDownloaded', { n: state.overlays.length }), 'success');
+    notify(`KMZ をダウンロードしました（PhotoOverlay ×${state.overlays.length}）`, 'success');
   } catch (e) {
-    notify(t('msg.kmzExportFailed', { msg: e.message }), 'error');
+    notify(`KMZ 出力に失敗しました: ${e.message}`, 'error');
   }
 }
 
@@ -2262,7 +2266,7 @@ async function handleKmzFile(file) {
         kmlEntry = candidates[0] || null;
       }
       if (!kmlEntry) {
-        notify(t('msg.noKmlInKmz'), 'error');
+        notify('KMZ 内に KML ファイルが見つかりません。', 'error');
         return;
       }
       kmlString = await kmlEntry.async('string');
@@ -2271,19 +2275,19 @@ async function handleKmzFile(file) {
     // --- DOMParser で解析 ---
     const doc = new DOMParser().parseFromString(kmlString, 'text/xml');
     if (doc.querySelector('parsererror')) {
-      notify(t('msg.kmlParseError'), 'error');
+      notify('KML の解析に失敗しました（XML 構文エラー）。', 'error');
       return;
     }
 
     const overlayEls = [...doc.getElementsByTagName('PhotoOverlay')];
     if (overlayEls.length === 0) {
-      notify(t('msg.noPhotoOverlays'), 'error');
+      notify('この KMZ / KML には PhotoOverlay が含まれていません。', 'error');
       return;
     }
 
     // 既存データの置き換え確認
     if (state.overlays.length > 0) {
-      if (!confirm(t('confirm.discard', { n: state.overlays.length }))) {
+      if (!confirm(`現在の ${state.overlays.length} 件の PhotoOverlay を破棄して読み込みますか？`)) {
         return;
       }
     }
@@ -2306,9 +2310,9 @@ async function handleKmzFile(file) {
       // カメラ視点へ移動して写真を画面中央に表示
       finalizeImageLoad(first, null);
     }
-    notify(t('msg.kmzRestored', { n: restored }), 'success');
+    notify(`KMZ から PhotoOverlay を ${restored} 件復元しました。`, 'success');
   } catch (e) {
-    notify(t('msg.kmzLoadFailed', { msg: e.message }), 'error');
+    notify(`KMZ の読み込みに失敗しました: ${e.message}`, 'error');
   }
 }
 
@@ -2371,7 +2375,7 @@ async function parsePhotoOverlayElement(el, zip) {
   const href = kmlText(iconEl, 'href') || '';
   ov.imagePath = href;
   if (!href) {
-    notify(t('msg.noIconHref', { name: ov.name }), 'warn');
+    notify(`「${ov.name}」に Icon href がありません。画像なしで復元します。`, 'warn');
   } else if (zip) {
     const entry = findZipImage(zip, href);
     if (entry) {
@@ -2393,19 +2397,19 @@ async function parsePhotoOverlayElement(el, zip) {
           ov.imageHeight = dims.height;
           ov.isPanoCandidate = isPanoAspect(dims.width, dims.height);
         } catch {
-          notify(t('msg.undecodableInKmz', { name: ov.name, href }), 'warn');
+          notify(`「${ov.name}」の画像（${href}）はこのブラウザで表示できない形式です。`, 'warn');
         }
         // GPS Exif の有無を記録（表示用）
         ov._hasGps = !!(await readGpsExif(typedBlob).catch(() => null));
       } catch (e) {
-        notify(t('msg.imageExtractFailed', { name: ov.name, msg: e.message }), 'warn');
+        notify(`「${ov.name}」の画像展開に失敗しました: ${e.message}`, 'warn');
       }
     } else if (/^https?:\/\//.test(href)) {
       // 外部 URL 参照はそのままプレビューを試みる
       ov.imageUrl = href;
-      notify(t('msg.externalHref', { name: ov.name, href }), 'info');
+      notify(`「${ov.name}」は外部 URL の画像を参照しています: ${href}`, 'info');
     } else {
-      notify(t('msg.imageNotInKmz', { href, name: ov.name }), 'warn');
+      notify(`KMZ 内に画像が見つかりません: ${href}（「${ov.name}」）`, 'warn');
     }
   }
   return ov;
@@ -2461,13 +2465,14 @@ function binaryStringToBytes(str) {
  */
 async function exportGpsJpeg() {
   const ov = getSelected();
-  if (!ov) { notify(t('msg.selectOverlayFirst'), 'warn'); return; }
+  if (!ov) { notify('PhotoOverlay を選択してください。', 'warn'); return; }
   if (!ov.imageFile) {
-    notify(t('msg.noImageFile'), 'error');
+    notify('この PhotoOverlay には画像ファイルがありません。', 'error');
     return;
   }
   if (!EXIF_WRITABLE_TYPES.includes(ov.imageType)) {
-    notify(t('msg.exifJpegOnly', { type: ov.imageType || '?' }), 'error');
+    notify(`GPS Exif 書き込みは JPEG のみ正式対応です（現在: ${ov.imageType || '不明'}）。` +
+      'JPEG に変換してから読み込んでください。', 'error');
     return;
   }
 
@@ -2497,11 +2502,9 @@ async function exportGpsJpeg() {
 
     const baseName = (ov.imagePath.split('/').pop() || 'photo.jpg').replace(/\.[^.]+$/, '');
     downloadBlob(blob, `${baseName}_gps.jpg`);
-    notify(t('msg.exifWritten', {
-      lat: latitude.toFixed(6), lng: longitude.toFixed(6), alt: altitude.toFixed(1),
-    }), 'success');
+    notify(`GPS Exif（${latitude.toFixed(6)}, ${longitude.toFixed(6)}, ${altitude.toFixed(1)}m）を書き込んだ JPEG をダウンロードしました。`, 'success');
   } catch (e) {
-    notify(t('msg.exifWriteFailed', { msg: e.message }), 'error');
+    notify(`Exif 書き込みに失敗しました: ${e.message}`, 'error');
   }
 }
 
@@ -2512,7 +2515,7 @@ async function exportGpsJpeg() {
 /** 現在の全 overlay 設定を JSON でダウンロードする（画像バイナリは含まない） */
 function exportJson() {
   if (state.overlays.length === 0) {
-    notify(t('msg.nothingToSave'), 'warn');
+    notify('保存する PhotoOverlay がありません。', 'warn');
     return;
   }
   const data = {
@@ -2539,7 +2542,7 @@ function exportJson() {
   };
   downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
     'photo-overlays-settings.json');
-  notify(t('msg.jsonSaved'), 'success');
+  notify('設定 JSON を保存しました（画像は含まれません）。', 'success');
 }
 
 /** JSON 設定を読み込む（画像は「画像を差し替え」で再設定が必要） */
@@ -2547,29 +2550,25 @@ async function importJson(file) {
   try {
     const data = JSON.parse(await file.text());
     if (data.app !== 'PhotoOverlayCreator' || !Array.isArray(data.overlays)) {
-      notify(t('msg.jsonInvalid'), 'error');
+      notify('この JSON は PhotoOverlay Creator の設定ファイルではありません。', 'error');
       return;
     }
     if (state.overlays.length > 0 &&
-        !confirm(t('confirm.discard', { n: state.overlays.length }))) {
+        !confirm(`現在の ${state.overlays.length} 件の PhotoOverlay を破棄して読み込みますか？`)) {
       return;
     }
     clearAllOverlays();
     for (const o of data.overlays) {
-      // id はキーごと除去して createOverlayModel に UUID を再生成させる。
-      // `id: undefined` のままだとスプレッドで生成済み UUID を上書きし、
-      // 全オーバーレイが id undefined で衝突する。
-      const { id: _discarded, ...rest } = o;
-      state.overlays.push(createOverlayModel({ ...rest, imageFile: null, imageUrl: '' }));
+      state.overlays.push(createOverlayModel({ ...o, id: undefined, imageFile: null, imageUrl: '' }));
     }
     state.overlayCounter = state.overlays.length;
     if (state.overlays.length) selectOverlay(state.overlays[0].id);
     renderOverlayList();
     updateFormFromModel();
     refreshMapVisuals();
-    notify(t('msg.jsonRestored', { n: data.overlays.length }), 'success');
+    notify(`JSON から ${data.overlays.length} 件の設定を復元しました。各 PhotoOverlay の画像は「画像を差し替え」で再読込してください。`, 'success');
   } catch (e) {
-    notify(t('msg.jsonLoadFailed', { msg: e.message }), 'error');
+    notify(`JSON の読み込みに失敗しました: ${e.message}`, 'error');
   }
 }
 
@@ -2601,17 +2600,8 @@ function setupHeaderEvents() {
 
   $('photo-view-btn').addEventListener('click', () => {
     const ov = getSelected();
-    if (!ov) { notify(t('msg.selectOverlayFirst'), 'warn'); return; }
+    if (!ov) { notify('先に PhotoOverlay を選択してください', 'warn'); return; }
     viewPhotoFromCamera(ov);
-  });
-
-  // 言語切替（動的生成部分も再描画して反映する）
-  $('lang-select').value = currentLang;
-  $('lang-select').addEventListener('change', (e) => {
-    setLanguage(e.target.value);
-    renderOverlayList();
-    updateFormFromModel();
-    refreshMapVisuals();
   });
 }
 
@@ -2648,9 +2638,6 @@ function setupIoEvents() {
 
 /** アプリのエントリポイント */
 function init() {
-  // 保存されている言語（既定: 英語）を静的 UI へ反映
-  applyI18nToDom();
-
   // 依存ライブラリの読み込み確認
   const missing = [];
   if (typeof maplibregl === 'undefined') missing.push('MapLibre GL JS');
@@ -2658,7 +2645,7 @@ function init() {
   if (typeof piexif === 'undefined') missing.push('piexifjs');
   if (typeof ExifReader === 'undefined') missing.push('ExifReader');
   if (missing.length) {
-    notify(t('msg.cdnFailed', { libs: missing.join(', ') }), 'error');
+    notify(`CDN ライブラリの読み込みに失敗しました: ${missing.join(', ')}。ネットワーク接続を確認してください。`, 'error');
     if (missing.includes('MapLibre GL JS')) return; // 地図なしでは続行不可
   }
 
@@ -2674,7 +2661,7 @@ function init() {
 
   mapW.once('style.load', () => {
     rebuildCustomLayers();
-    notify(t('msg.mapInitialized'), 'info');
+    notify('地図を初期化しました。「画像を読込」または「KMZ を読込」から始めてください。', 'info');
   });
 
   setupHeaderEvents();
